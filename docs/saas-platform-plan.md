@@ -18,7 +18,8 @@
 | تیم فنی | TypeScript |
 | استک اپ کسب‌وکار | **Next.js فول‌استک** (App Router + Route Handlers / Server Actions) |
 | Express جدا؟ | **خیر** — برای MVP لازم نیست |
-| ریپوی کد | **ریپوی جدا** از Coolify (ورک‌اسپیس Cursor می‌تواند مشترک باشد) |
+| ریپوی کد | **ریپوی جدا:** `/home/mj/Documents/paas-portal` |
+| ورک‌اسپیس Cursor | `/home/mj/Documents/paas.code-workspace` (هر دو ریپو کنار هم) |
 | چندمستأجری | بله — با `organization_id` به‌عنوان tenant (نه لزوماً نام `tenant_id`) |
 | استقرار | دو VM روی یک سرور فیزیکی: اپ (عمومی) + Coolify (خصوصی) |
 | دسترسی کاربر | فقط به اپ کسب‌وکار از اینترنت |
@@ -614,9 +615,12 @@ DATABASE_URL=postgresql://...
 | 4 | قفل tenant = `organization_id` | انجام شد |
 | 5 | ساخت توکن API در Coolify (`read`/`write`/`deploy`) | در انتظار اجرا روی سرور |
 | 6 | تأیید دسترسی شبکه خصوصی اپ VM → Coolify VM | در انتظار زیرساخت |
-| 7 | ایجاد ریپوی جدا Next.js | در انتظار نام/مسیر ریپو |
-| 8 | پیاده‌سازی `CoolifyClient` + تست health | بعد از گام ۵–۷ |
-| 9 | مسیر E2E: org → project → postgres → app → start | بعد از گام ۸ |
+| 7 | ایجاد ریپوی جدا Next.js (`paas-portal`) | انجام شد |
+| 8 | اسکلت `CoolifyClient` + `/api/coolify/health` | انجام شد |
+| 9 | فایل ورک‌اسپیس مشترک `paas.code-workspace` | انجام شد |
+| 10 | قواعد/skills ایجنت Cursor در `paas-portal` | انجام شد |
+| 11 | ساخت توکن + پر کردن `.env.local` + تست health واقعی | در انتظار زیرساخت |
+| 12 | مسیر E2E: org → project → postgres → app → start | بعد از گام ۱۱ |
 
 ---
 
@@ -647,11 +651,15 @@ DATABASE_URL=postgresql://...
 
 ### هنوز باز
 1. نام برند محصول نهایی چیست؟  
-2. نام و مسیر ریپوی اپ Next.js؟  
-3. آیا مشتری در MVP فقط روی سرورهای ما دیپلوی می‌شود؟ (پیشنهاد پیش‌فرض: **بله**)  
-4. استراتژی دامنه پیش‌فرض اپ‌های مشتری: `*.yourplatform.ir`؟  
-5. قیمت دقیق پلن‌ها و ارز (تومان / ریال)؟  
-6. انتخاب ORM: Prisma یا Drizzle؟  
+2. آیا مشتری در MVP فقط روی سرورهای ما دیپلوی می‌شود؟ (پیشنهاد پیش‌فرض: **بله**)  
+3. استراتژی دامنه پیش‌فرض اپ‌های مشتری: `*.yourplatform.ir`؟  
+4. قیمت دقیق پلن‌ها و ارز (تومان / ریال)؟  
+5. انتخاب ORM: Prisma یا Drizzle؟  
+
+### مسیرهای محلی ایجادشده
+- اپ: `/home/mj/Documents/paas-portal`
+- ورک‌اسپیس: `/home/mj/Documents/paas.code-workspace`
+- موتور: `/home/mj/Documents/coolify-4.x` 
 
 ---
 
