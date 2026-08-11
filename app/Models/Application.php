@@ -1063,13 +1063,35 @@ class Application extends BaseModel
     }
 
     /**
+     * Hostnames covered by uploaded Traefik certificates, including SAN entries.
+     *
      * @return array<int, string>
      */
     public function manualSslHosts(): array
     {
         return $this->traefikSslCertificates()
-            ->pluck('domain')
+            ->get(['domain', 'common_name', 'subject_alternative_names'])
+            ->flatMap(function (SslCertificate $certificate) {
+                $hosts = collect([
+                    $certificate->domain,
+                    $certificate->common_name,
+                ]);
+
+                foreach ($certificate->subject_alternative_names ?? [] as $san) {
+                    if (! is_string($san) || $san === '') {
+                        continue;
+                    }
+
+                    $hosts->push(str_contains($san, ':')
+                        ? explode(':', $san, 2)[1]
+                        : $san);
+                }
+
+                return $hosts;
+            })
+            ->map(fn (?string $host) => filled($host) ? extractApplicationDomainHost($host) : null)
             ->filter()
+            ->unique()
             ->values()
             ->all();
     }
