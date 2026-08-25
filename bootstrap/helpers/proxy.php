@@ -381,9 +381,22 @@ function applicationEffectiveProxySslMode(\App\Models\Application $application):
 function traefikSslOptionsForApplication(\App\Models\Application $application): array
 {
     $proxySslMode = applicationEffectiveProxySslMode($application);
-    $manualSslHosts = $proxySslMode === \App\Enums\ProxySslMode::Manual
-        ? $application->manualSslHosts()
-        : null;
+    $manualSslHosts = null;
+
+    if ($proxySslMode === \App\Enums\ProxySslMode::Manual) {
+        $server = $application->destination->server;
+        $serverMode = serverProxySslMode($server);
+
+        if ($serverMode === \App\Enums\ProxySslMode::Manual) {
+            // Platform proxy is in manual TLS mode: emit HTTPS routers for every
+            // configured https:// domain. Traefik terminates TLS with the proxy /
+            // default certificate (and optional per-app certs under /traefik/certs).
+            $manualSslHosts = null;
+        } else {
+            // App-level manual certificates while the server uses Let's Encrypt.
+            $manualSslHosts = $application->manualSslHosts();
+        }
+    }
 
     return [$proxySslMode, $manualSslHosts];
 }

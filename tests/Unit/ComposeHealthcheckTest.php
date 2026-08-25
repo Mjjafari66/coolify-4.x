@@ -52,3 +52,19 @@ it('adds traefik service port labels when compose expose port is known', functio
     expect($labels->contains(fn ($label) => str_contains($label, 'loadbalancer.server.port=5000')))->toBeTrue();
     expect($labels->contains(fn ($label) => str_contains($label, '.service=https-0-test-uuid')))->toBeTrue();
 });
+
+it('creates http and https routers for each compose domain', function () {
+    $labels = fqdnLabelsForTraefik(
+        uuid: 'app-uuid',
+        domains: collect(['https://app.example.com', 'https://custom.example.com']),
+        is_force_https_enabled: true,
+        onlyPort: 5000,
+        service_name: 'app',
+    );
+
+    expect($labels->contains(fn ($label) => str_contains($label, 'Host(`app.example.com`)')))->toBeTrue();
+    expect($labels->contains(fn ($label) => str_contains($label, 'Host(`custom.example.com`)')))->toBeTrue();
+    expect($labels->contains(fn ($label) => str_contains($label, 'https-0-app-uuid-app') && str_contains($label, 'entryPoints=https')))->toBeTrue();
+    expect($labels->contains(fn ($label) => str_contains($label, 'https-1-app-uuid-app') && str_contains($label, 'entryPoints=https')))->toBeTrue();
+    expect($labels->contains(fn ($label) => str_contains($label, '.tls=true')))->toBeTrue();
+});

@@ -89,6 +89,38 @@ it('returns traefik ssl options with manual hosts for applications with uploaded
     expect($manualSslHosts)->toBe(['m-shahabadi.com']);
 });
 
+it('does not filter https domains when server proxy ssl mode is manual', function () {
+    $server = Mockery::mock(Server::class)->makePartial();
+    $settings = new ServerSetting;
+    $settings->proxy_ssl_mode = ProxySslMode::Manual->value;
+    $server->settings = $settings;
+
+    $application = Mockery::mock(Application::class)->makePartial();
+    $application->settings = null;
+    $destination = new stdClass;
+    $destination->server = $server;
+    $application->destination = $destination;
+
+    [$proxySslMode, $manualSslHosts] = traefikSslOptionsForApplication($application);
+
+    expect($proxySslMode)->toBe(ProxySslMode::Manual);
+    expect($manualSslHosts)->toBeNull();
+
+    $labels = fqdnLabelsForTraefik(
+        uuid: 'app-uuid',
+        domains: collect(['https://robra.ir', 'https://vanda.weblines.ir']),
+        is_force_https_enabled: true,
+        onlyPort: 5000,
+        service_name: 'app',
+        proxy_ssl_mode: $proxySslMode,
+        manual_ssl_hosts: $manualSslHosts,
+    );
+
+    expect($labels->contains(fn ($label) => str_contains($label, 'Host(`robra.ir`)') && str_contains($label, 'routers.https-0-')))->toBeTrue();
+    expect($labels->contains(fn ($label) => str_contains($label, 'entryPoints=https')))->toBeTrue();
+    expect($labels->contains(fn ($label) => str_contains($label, '.tls=true')))->toBeTrue();
+});
+
 it('builds application certificate paths for traefik dynamic config', function () {
     $application = Mockery::mock(Application::class)->makePartial();
     $application->uuid = 'app-uuid-123';

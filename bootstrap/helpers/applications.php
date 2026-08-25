@@ -383,3 +383,8 @@ function clone_application(Application $source, $destination, array $overrides =
 
     return $newApplication;
 }
+
+function applicationCanRestartComposeWithoutGit(Application $application): bool
+{
+    return $application->build_pack === 'dockercompose' && filled($application->docker_compose_raw);
+}

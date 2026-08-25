@@ -1222,13 +1222,29 @@ class ApplicationDeploymentJob implements ShouldBeEncrypted, ShouldQueue
     {
         $this->application_deployment_queue->addLogEntry("Restarting {$this->customRepository}:{$this->application->git_branch} on {$this->server->name}.");
 
+        if (applicationCanRestartComposeWithoutGit($this->application)) {
+            $this->restart_compose_without_git();
+
+            return;
+        }
+
         // Restart doesn't need the build server — disable it so the helper container
         // is created on the deployment server with the correct network/flags.
         $originalUseBuildServer = $this->use_build_server;
         $this->use_build_server = false;
 
         $this->prepare_builder_image();
-        $this->check_git_if_build_needed();
+        try {
+            $this->check_git_if_build_needed();
+        } catch (\Throwable $e) {
+            $knownCommit = $this->application->git_commit_sha;
+            if (filled($knownCommit) && $knownCommit !== 'HEAD') {
+                $this->commit = $knownCommit;
+                $this->application_deployment_queue->addLogEntry('Git unreachable during restart; using last known commit.');
+            } else {
+                throw $e;
+            }
+        }
         $this->generate_image_names();
         $this->check_image_locally_or_remotely();
 
@@ -1238,6 +1254,154 @@ class ApplicationDeploymentJob implements ShouldBeEncrypted, ShouldQueue
 
         $this->should_skip_build();
         $this->completeDeployment();
+    }
+
+    private function restart_compose_without_git(): void
+    {
+        $this->application_deployment_queue->addLogEntry('Applying stored compose configuration without cloning git.');
+        $this->use_build_server = false;
+
+        if (data_get($this->application, 'docker_compose_location')) {
+            $this->docker_compose_location = $this->validatePathField($this->application->docker_compose_location, 'docker_compose_location');
+        }
+
+        $this->prepare_builder_image();
+        $knownCommit = $this->application->git_commit_sha;
+        if (filled($knownCommit) && $knownCommit !== 'HEAD') {
+            $this->commit = $knownCommit;
+        }
+        $this->create_workdir();
+
+        $composeFile = $this->application->parse(
+            pull_request_id: $this->pull_request_id,
+            preview_id: data_get($this->preview, 'id'),
+            commit: $this->commit,
+        );
+        $services = collect(data_get($composeFile, 'services', []));
+        if ($services->isEmpty()) {
+            throw new DeploymentException('Failed to parse stored docker-compose file.');
+        }
+
+        $runningImages = $this->running_compose_service_images();
+        if ($runningImages->isEmpty()) {
+            throw new DeploymentException('No running compose containers found to restart without rebuilding.');
+        }
+
+        if ((! filled($this->commit) || $this->commit === 'HEAD')) {
+            $sampleImage = $this->prefer_built_compose_image($runningImages);
+            if (is_string($sampleImage) && str_contains($sampleImage, ':')) {
+                $tag = str($sampleImage)->afterLast(':')->toString();
+                // Only accept git-like SHAs — never registry tags (e.g. redis:7.4-alpine).
+                if (preg_match('/^[0-9a-f]{7,40}$/i', $tag) === 1) {
+                    $this->commit = $tag;
+                    $this->application_deployment_queue->addLogEntry("Using commit from running image tag: {$tag}");
+                    if ($this->application->git_commit_sha === 'HEAD' || ! preg_match('/^[0-9a-f]{7,40}$/i', (string) $this->application->git_commit_sha)) {
+                        $this->application->git_commit_sha = $tag;
+                        $this->application->save();
+                    }
+                }
+            }
+        }
+
+        $services = $services->map(function ($service, $serviceName) use ($runningImages) {
+            $service['env_file'] = ['.env'];
+            $runningImage = $runningImages->get($serviceName);
+            if (filled($runningImage)) {
+                $service['image'] = $runningImage;
+                unset($service['build']);
+                $service['pull_policy'] = 'never';
+            }
+
+            return $service;
+        });
+        $composeFile['services'] = $services->toArray();
+        $yaml = Yaml::dump(convertToArray($composeFile), 10);
+        $this->docker_compose_base64 = base64_encode($yaml);
+        $this->execute_remote_command([
+            executeInDocker($this->deployment_uuid, "echo '{$this->docker_compose_base64}' | base64 -d | tee {$this->workdir}{$this->docker_compose_location} > /dev/null"),
+            'hidden' => true,
+        ]);
+
+        $this->save_runtime_environment_variables();
+        $this->write_deployment_configurations();
+
+        $networkId = $this->application->uuid;
+        $this->execute_remote_command(
+            [
+                "docker network inspect '{$networkId}' >/dev/null 2>&1 || docker network create --attachable '{$networkId}' >/dev/null || true",
+                'hidden' => true,
+                'ignore_errors' => true,
+            ],
+            [
+                "docker network connect {$networkId} coolify-proxy >/dev/null 2>&1 || true",
+                'hidden' => true,
+                'ignore_errors' => true,
+            ],
+        );
+
+        $command = "{$this->coolify_variables} docker compose --env-file {$this->workdir}/.env --project-name {$this->application->uuid} --project-directory {$this->workdir} -f {$this->workdir}{$this->docker_compose_location} up -d --no-build --pull never";
+        $this->execute_remote_command([
+            executeInDocker($this->deployment_uuid, $command),
+            'hidden' => false,
+            'type' => 'stdout',
+            'command_hidden' => true,
+        ]);
+        $this->application_deployment_queue->addLogEntry('Compose services restarted with updated proxy labels.');
+        $this->completeDeployment();
+    }
+
+    /**
+     * Prefer locally built app images ({uuid}_service:sha) over third-party images (redis:…).
+     */
+    private function prefer_built_compose_image(\Illuminate\Support\Collection $runningImages): ?string
+    {
+        $uuid = $this->application->uuid;
+        $built = $runningImages->first(function ($image) use ($uuid) {
+            return is_string($image) && (str_starts_with($image, "{$uuid}_") || str_starts_with($image, "{$uuid}:"));
+        });
+
+        return is_string($built) ? $built : null;
+    }
+
+    /**
+     * Map compose service name => currently running (or last created) image reference.
+     * Avoids restart-without-git failing when git_commit_sha is still HEAD.
+     */
+    private function running_compose_service_images(): \Illuminate\Support\Collection
+    {
+        $uuid = $this->application->uuid;
+        $this->execute_remote_command([
+            "docker ps -a --filter name={$uuid} --format '{{.Names}}|{{.Image}}'",
+            'hidden' => true,
+            'ignore_errors' => true,
+            'save' => 'running_compose_images',
+        ]);
+
+        $images = collect();
+        $raw = str($this->saved_outputs->get('running_compose_images') ?? '');
+        foreach ($raw->explode("\n") as $line) {
+            $line = trim((string) $line);
+            if ($line === '' || ! str_contains($line, '|')) {
+                continue;
+            }
+            [$name, $image] = explode('|', $line, 2);
+            $name = ltrim($name, '/');
+            $image = trim($image);
+            if ($image === '') {
+                continue;
+            }
+            // container_name pattern: {service}-{uuid}[-suffix]
+            if (! str_contains($name, "-{$uuid}")) {
+                continue;
+            }
+            $serviceName = str($name)->before("-{$uuid}")->toString();
+            if ($serviceName === '' || $images->has($serviceName)) {
+                continue;
+            }
+            $images->put($serviceName, $image);
+        }
+
+        return $images;
     }
 
     private function should_skip_build()

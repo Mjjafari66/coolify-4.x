@@ -2670,6 +2670,15 @@ class ApplicationsController extends Controller
         }
         $application->save();
 
+        if (
+            $application->build_pack === 'dockercompose'
+            && $request->has('docker_compose_domains')
+            && filled($application->docker_compose_raw)
+        ) {
+            $application->refresh();
+            $application->parse();
+        }
+
         auditLog('api.application.updated', [
             'team_id' => $teamId,
             'application_uuid' => $application->uuid,
