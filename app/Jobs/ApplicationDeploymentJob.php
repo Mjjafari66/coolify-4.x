@@ -1288,17 +1288,14 @@ class ApplicationDeploymentJob implements ShouldBeEncrypted, ShouldQueue
         }
 
         if ((! filled($this->commit) || $this->commit === 'HEAD')) {
-            $sampleImage = $this->prefer_built_compose_image($runningImages);
-            if (is_string($sampleImage) && str_contains($sampleImage, ':')) {
-                $tag = str($sampleImage)->afterLast(':')->toString();
-                // Only accept git-like SHAs — never registry tags (e.g. redis:7.4-alpine).
-                if (preg_match('/^[0-9a-f]{7,40}$/i', $tag) === 1) {
-                    $this->commit = $tag;
-                    $this->application_deployment_queue->addLogEntry("Using commit from running image tag: {$tag}");
-                    if ($this->application->git_commit_sha === 'HEAD' || ! preg_match('/^[0-9a-f]{7,40}$/i', (string) $this->application->git_commit_sha)) {
-                        $this->application->git_commit_sha = $tag;
-                        $this->application->save();
-                    }
+            $sampleImage = preferBuiltComposeImage($this->application->uuid, $runningImages->values());
+            $tag = gitLikeShaFromComposeImageTag($sampleImage);
+            if (filled($tag)) {
+                $this->commit = $tag;
+                $this->application_deployment_queue->addLogEntry("Using commit from running image tag: {$tag}");
+                if ($this->application->git_commit_sha === 'HEAD' || ! preg_match('/^[0-9a-f]{7,40}$/i', (string) $this->application->git_commit_sha)) {
+                    $this->application->git_commit_sha = $tag;
+                    $this->application->save();
                 }
             }
         }
@@ -1348,19 +1345,6 @@ class ApplicationDeploymentJob implements ShouldBeEncrypted, ShouldQueue
         ]);
         $this->application_deployment_queue->addLogEntry('Compose services restarted with updated proxy labels.');
         $this->completeDeployment();
-    }
-
-    /**
-     * Prefer locally built app images ({uuid}_service:sha) over third-party images (redis:…).
-     */
-    private function prefer_built_compose_image(\Illuminate\Support\Collection $runningImages): ?string
-    {
-        $uuid = $this->application->uuid;
-        $built = $runningImages->first(function ($image) use ($uuid) {
-            return is_string($image) && (str_starts_with($image, "{$uuid}_") || str_starts_with($image, "{$uuid}:"));
-        });
-
-        return is_string($built) ? $built : null;
     }
 
     /**

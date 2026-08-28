@@ -388,3 +388,36 @@ function applicationCanRestartComposeWithoutGit(Application $application): bool
 {
     return $application->build_pack === 'dockercompose' && filled($application->docker_compose_raw);
 }
+
+/**
+ * Prefer locally built app images ({uuid}_service:sha) over third-party images (redis:…).
+ *
+ * @param  iterable<int|string, mixed>  $runningImages
+ */
+function preferBuiltComposeImage(string $applicationUuid, iterable $runningImages): ?string
+{
+    foreach ($runningImages as $image) {
+        if (! is_string($image)) {
+            continue;
+        }
+        if (str_starts_with($image, "{$applicationUuid}_") || str_starts_with($image, "{$applicationUuid}:")) {
+            return $image;
+        }
+    }
+
+    return null;
+}
+
+function gitLikeShaFromComposeImageTag(?string $image): ?string
+{
+    if (! filled($image) || ! str_contains($image, ':')) {
+        return null;
+    }
+
+    $tag = str($image)->afterLast(':')->toString();
+    if ($tag === 'HEAD' || preg_match('/^[0-9a-f]{7,40}$/i', $tag) !== 1) {
+        return null;
+    }
+
+    return $tag;
+}

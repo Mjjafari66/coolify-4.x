@@ -28,3 +28,19 @@ it('does not skip git when compose raw is missing', function () {
 
     expect(applicationCanRestartComposeWithoutGit($application))->toBeFalse();
 });
+
+it('prefers built compose image over third-party tags', function () {
+    $uuid = 'abc-123';
+    $images = [
+        'redis:7.4-alpine',
+        "{$uuid}_app:deadbeef1234567",
+    ];
+
+    expect(preferBuiltComposeImage($uuid, $images))->toBe("{$uuid}_app:deadbeef1234567");
+});
+
+it('rejects registry tags when extracting git sha from image', function () {
+    expect(gitLikeShaFromComposeImageTag('redis:7.4-alpine'))->toBeNull();
+    expect(gitLikeShaFromComposeImageTag('app-uuid_app:deadbeef1234567'))->toBe('deadbeef1234567');
+    expect(gitLikeShaFromComposeImageTag('app-uuid_app:HEAD'))->toBeNull();
+});
