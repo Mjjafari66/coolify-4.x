@@ -1,13 +1,14 @@
-# ignore: true
 # documentation: https://min.io/docs/minio/container/index.html
 # slogan: MinIO is a high performance object storage server compatible with Amazon S3 APIs.
 # category: storage
 # tags: object, storage, server, s3, api
 # logo: svgs/minio.svg
+# port: 9001
 
 services:
   minio:
-    image: quay.io/minio/minio:latest
+    # ghcr.io unreachable from IR engine hosts; Arvan mirror already cached/pullable
+    image: docker.arvancloud.ir/minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
       - MINIO_SERVER_URL=$MINIO_SERVER_URL
@@ -17,7 +18,7 @@ services:
     volumes:
       - minio-data:/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 5s
       timeout: 20s
       retries: 10
