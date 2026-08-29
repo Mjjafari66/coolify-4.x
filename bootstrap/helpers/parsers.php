@@ -2613,10 +2613,12 @@ function serviceParser(Service $resource): Collection
             if ($shouldGenerateLabelsExactly) {
                 switch ($server->proxyType()) {
                     case ProxyTypes::TRAEFIK->value:
+                        // SaaS edge is Cloudflare Flexible SSL (origin HTTP :80).
+                        // Force-HTTPS Traefik redirects cause infinite 302 loops for customers.
                         $serviceLabels = $serviceLabels->merge(fqdnLabelsForTraefik(
                             uuid: $uuid,
                             domains: $fqdns,
-                            is_force_https_enabled: true,
+                            is_force_https_enabled: false,
                             serviceLabels: $serviceLabels,
                             is_gzip_enabled: $originalResource->isGzipEnabled(),
                             is_stripprefix_enabled: $originalResource->isStripprefixEnabled(),
@@ -2630,7 +2632,7 @@ function serviceParser(Service $resource): Collection
                             network: $network,
                             uuid: $uuid,
                             domains: $fqdns,
-                            is_force_https_enabled: true,
+                            is_force_https_enabled: false,
                             serviceLabels: $serviceLabels,
                             is_gzip_enabled: $originalResource->isGzipEnabled(),
                             is_stripprefix_enabled: $originalResource->isStripprefixEnabled(),
@@ -2641,10 +2643,12 @@ function serviceParser(Service $resource): Collection
                         break;
                 }
             } else {
+                // SaaS edge is Cloudflare Flexible SSL (origin HTTP :80).
+                // Force-HTTPS Traefik redirects cause infinite 302 loops for customers.
                 $serviceLabels = $serviceLabels->merge(fqdnLabelsForTraefik(
                     uuid: $uuid,
                     domains: $fqdns,
-                    is_force_https_enabled: true,
+                    is_force_https_enabled: false,
                     serviceLabels: $serviceLabels,
                     is_gzip_enabled: $originalResource->isGzipEnabled(),
                     is_stripprefix_enabled: $originalResource->isStripprefixEnabled(),
@@ -2656,7 +2660,7 @@ function serviceParser(Service $resource): Collection
                     network: $network,
                     uuid: $uuid,
                     domains: $fqdns,
-                    is_force_https_enabled: true,
+                    is_force_https_enabled: false,
                     serviceLabels: $serviceLabels,
                     is_gzip_enabled: $originalResource->isGzipEnabled(),
                     is_stripprefix_enabled: $originalResource->isStripprefixEnabled(),
