@@ -61,6 +61,7 @@ grep '^AUTOUPDATE=false' /data/coolify/source/.env
 
 # Patches present inside container
 docker exec coolify grep -l restart_compose_without_git /var/www/html/app/Jobs/ApplicationDeploymentJob.php
+docker exec coolify grep -l 'Injected platform-generated Dockerfile' /var/www/html/app/Jobs/ApplicationDeploymentJob.php
 docker exec coolify grep -l 'Platform proxy is in manual TLS mode' /var/www/html/bootstrap/helpers/proxy.php
 
 # Health

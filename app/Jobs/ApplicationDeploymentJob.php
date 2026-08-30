@@ -491,12 +491,16 @@ class ApplicationDeploymentJob implements ShouldBeEncrypted, ShouldQueue
             $this->deploy_dockerimage_buildpack();
         } elseif ($this->pull_request_id !== 0) {
             $this->deploy_pull_request();
-        } elseif ($this->application->dockerfile) {
-            $this->deploy_simple_dockerfile();
         } elseif ($this->application->build_pack === 'dockercompose') {
             $this->deploy_docker_compose_buildpack();
         } elseif ($this->application->build_pack === 'dockerfile') {
+            // Prefer git+dockerfile path so platform-injected Dockerfile content
+            // still clones the repository (Weblines auto-generated Dockerfiles).
             $this->deploy_dockerfile_buildpack();
+        } elseif (filled($this->application->dockerfile) && filled($this->application->git_repository)) {
+            $this->deploy_dockerfile_buildpack();
+        } elseif ($this->application->dockerfile) {
+            $this->deploy_simple_dockerfile();
         } elseif ($this->application->build_pack === 'static') {
             $this->deploy_static_buildpack();
         } elseif ($this->application->build_pack === 'nixpacks') {
@@ -901,6 +905,17 @@ class ApplicationDeploymentJob implements ShouldBeEncrypted, ShouldQueue
             }
         }
         $this->cleanup_git();
+        // Platform (Weblines) may store a generated Dockerfile on the application
+        // record without committing it to the customer git repo. Inject it after clone.
+        if (filled($this->application->dockerfile)) {
+            $dockerfile_base64 = base64_encode($this->application->dockerfile);
+            $this->execute_remote_command(
+                [
+                    executeInDocker($this->deployment_uuid, "echo '$dockerfile_base64' | base64 -d | tee {$this->workdir}{$this->dockerfile_location} > /dev/null"),
+                ],
+            );
+            $this->application_deployment_queue->addLogEntry('Injected platform-generated Dockerfile (customer repository unchanged).');
+        }
         $this->generate_compose_file();
 
         // Save build-time .env file BEFORE the build

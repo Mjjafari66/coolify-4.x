@@ -26,6 +26,10 @@ docker exec coolify grep -q restart_compose_without_git \
   /var/www/html/app/Jobs/ApplicationDeploymentJob.php \
   || fail "restart_compose_without_git patch missing"
 
+docker exec coolify grep -q 'Injected platform-generated Dockerfile' \
+  /var/www/html/app/Jobs/ApplicationDeploymentJob.php \
+  || fail "platform-generated Dockerfile inject patch missing"
+
 docker exec coolify grep -q preferBuiltComposeImage \
   /var/www/html/bootstrap/helpers/applications.php \
   || fail "preferBuiltComposeImage patch missing"
