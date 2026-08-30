@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# Apply Docker daemon DNS/log config from this repo onto the Coolify engine VM.
+# Apply Docker daemon + host DNS config from this repo onto the Coolify engine VM.
 #
-# Why: builds that pull ghcr.io (nixpacks runtime) fail when the host DNS
-# (e.g. 10.10.10.1) does not forward external lookups. Pinning public DNS
-# in /etc/docker/daemon.json fixes that for every rebuild.
+# Why: builds that pull ghcr.io (nixpacks runtime) fail when DNS
+# (e.g. 10.10.10.1) does not forward external lookups.
+#
+# Important:
+# - daemon.json "dns" only affects *containers*
+# - `docker pull` uses the *host* /etc/resolv.conf
+#   so this script updates BOTH.
 #
 # Idempotent — safe to re-run after Coolify upgrades / VM rebuilds.
 #
@@ -19,6 +23,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="${ROOT}/config/docker-daemon.json"
 DEST="/etc/docker/daemon.json"
 BACKUP_DIR="/etc/docker/backups"
+RESOLV="/etc/resolv.conf"
 
 if [[ ! -f "$SRC" ]]; then
   echo "ERROR: missing source config: $SRC" >&2
@@ -63,6 +68,23 @@ else
   echo "Installed Docker DNS config → $DEST"
 fi
 
+# Host resolver — required for `docker pull` (daemon does not use daemon.json dns).
+if [[ -f "$RESOLV" ]]; then
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  cp -a "$RESOLV" "${BACKUP_DIR}/resolv.conf.${stamp}"
+  echo "Backed up existing resolv.conf → ${BACKUP_DIR}/resolv.conf.${stamp}"
+fi
+chattr -i "$RESOLV" 2>/dev/null || true
+if [[ -L "$RESOLV" ]]; then
+  rm -f "$RESOLV"
+fi
+printf '%s\n' \
+  'nameserver 8.8.8.8' \
+  'nameserver 8.8.4.4' \
+  'options timeout:2 attempts:3' \
+  > "$RESOLV"
+echo "Updated host DNS → $RESOLV"
+
 if command -v systemctl >/dev/null 2>&1; then
   systemctl restart docker
   echo "Docker daemon restarted"
@@ -71,7 +93,20 @@ else
   echo "Docker service restarted"
 fi
 
+# Wait briefly for docker to accept commands after restart
+for _ in $(seq 1 30); do
+  if docker info >/dev/null 2>&1; then
+    break
+  fi
+  sleep 1
+done
+
 echo "Verifying DNS egress via docker pull hello-world…"
 docker pull hello-world >/dev/null
 docker image rm -f hello-world >/dev/null 2>&1 || true
-echo "OK: Docker DNS config applied and pull succeeded"
+
+echo "Verifying ghcr.io resolve + nixpacks manifest…"
+getent hosts ghcr.io >/dev/null
+docker pull ghcr.io/railwayapp/nixpacks:ubuntu-1745885067 >/dev/null
+
+echo "OK: Docker + host DNS config applied; registry pulls succeeded"
