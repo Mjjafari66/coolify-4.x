@@ -16,8 +16,11 @@ Usage:
 """
 from __future__ import annotations
 
+import shlex
 import sys
 from pathlib import Path
+
+shlex_quote = shlex.quote
 
 try:
     import paramiko
@@ -54,17 +57,27 @@ def main() -> int:
         timeout=30, allow_agent=False, look_for_keys=False,
     )
 
+    sudo_pw = env.get("COOLIFY_SUDO_PASSWORD") or env.get("COOLIFY_SSH_PASSWORD", "")
+
     def run(cmd: str, t: int = 90) -> tuple[str, int]:
         _, o, e = c.exec_command(cmd, timeout=t)
         rc = o.channel.recv_exit_status()
         return (o.read().decode(errors="replace").strip()
                 or e.read().decode(errors="replace").strip()), rc
 
+    def sudo(cmd: str, t: int = 60) -> tuple[str, int]:
+        # stdin is a pipe (printf), so a wrong password makes sudo exit on EOF
+        # rather than hang waiting for a retry.
+        inner = shlex_quote(cmd)
+        full = (f"sudo -n bash -c {inner} 2>/dev/null || "
+                f"printf '%s\\n' {shlex_quote(sudo_pw)} | sudo -S -p '' bash -c {inner}")
+        return run(full, t)
+
     host, _ = run("hostname")
     print(f"VM: {host}\n")
 
     print("--- BEFORE ---")
-    envline, _ = run(f"grep -i '^AUTOUPDATE' {DOTENV} || echo '(no AUTOUPDATE line)'")
+    envline, _ = sudo(f"grep -i '^AUTOUPDATE' {DOTENV} || echo '(no AUTOUPDATE line)'")
     print("env AUTOUPDATE     :", envline)
     dbq = ('docker exec coolify php artisan tinker --execute='
            '"echo \\App\\Models\\InstanceSettings::first()->is_auto_update_enabled ? '
@@ -81,10 +94,11 @@ def main() -> int:
         return 0
 
     print("\n--- APPLYING ---")
-    out, rc = run(
+    out, rc = sudo(
         f"if grep -q '^AUTOUPDATE=' {DOTENV}; then "
-        f"sudo sed -i 's/^AUTOUPDATE=.*/AUTOUPDATE=false/' {DOTENV}; "
-        f"else echo 'AUTOUPDATE=false' | sudo tee -a {DOTENV} >/dev/null; fi && echo OK")
+        f"sed -i 's/^AUTOUPDATE=.*/AUTOUPDATE=false/' {DOTENV}; "
+        f"else printf 'AUTOUPDATE=false\\n' >> {DOTENV}; fi && "
+        f"grep -i '^AUTOUPDATE' {DOTENV}")
     print("env write:", out, "(rc", rc, ")")
     out, rc = run(
         'docker exec coolify php artisan tinker --execute='
@@ -93,7 +107,7 @@ def main() -> int:
     print("DB update:", out.strip().splitlines()[-1] if out else "?", "(rc", rc, ")")
 
     print("\n--- AFTER ---")
-    envline, _ = run(f"grep -i '^AUTOUPDATE' {DOTENV}")
+    envline, _ = sudo(f"grep -i '^AUTOUPDATE' {DOTENV} || echo '(still missing)'")
     print("env AUTOUPDATE     :", envline)
     dbval, _ = run(dbq)
     print("DB is_auto_update  :", dbval.strip().splitlines()[-1] if dbval else "?")
