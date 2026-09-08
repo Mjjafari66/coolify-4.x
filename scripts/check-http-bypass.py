@@ -57,11 +57,19 @@ def main() -> int:
     else:
         c.connect(host, port, user, password=env["COOLIFY_SSH_PASSWORD"], **kwargs)
 
+    sudo_pw = env.get("COOLIFY_SUDO_PASSWORD") or env.get("COOLIFY_SSH_PASSWORD", "")
+
     def run(cmd: str, t: int = 60) -> tuple[str, int]:
         _, o, e = c.exec_command(cmd, timeout=t)
         rc = o.channel.recv_exit_status()
         return (o.read().decode(errors="replace").strip()
                 or e.read().decode(errors="replace").strip()), rc
+
+    def sudo(cmd: str, t: int = 60) -> tuple[str, int]:
+        import shlex as _sh
+        q = _sh.quote(cmd)
+        return run(f"sudo -n bash -c {q} 2>/dev/null || "
+                   f"printf '%s\\n' {_sh.quote(sudo_pw)} | sudo -S -p '' bash -c {q}", t)
 
     results: list[tuple[str, str, str]] = []
 
@@ -103,8 +111,9 @@ def main() -> int:
         tail, _ = run(f"tail -n 5 {REMOTE_LOG}")
         if tail:
             print("    log tail:\n      " + tail.replace("\n", "\n      "))
-        errs, _ = run(f"grep -c -iE 'traceback|error' {REMOTE_LOG} 2>/dev/null || echo 0")
-        check("log error count", PASS if errs.strip() in ("", "0") else WARN, f"{errs.strip()} error lines")
+        errs, _ = run(f"tail -n 500 {REMOTE_LOG} | grep -icE 'traceback|error' | head -1")
+        errs = (errs.strip().splitlines() or ["0"])[0] or "0"
+        check("log errors (last 500 lines)", PASS if errs == "0" else WARN, f"{errs} error line(s)")
     else:
         check("log present", FAIL, f"{REMOTE_LOG} missing")
 
@@ -133,15 +142,17 @@ def main() -> int:
     # 6. custom image / autoupdate / patch
     out, _ = run("docker inspect coolify --format '{{.Config.Image}}' 2>/dev/null")
     check("coolify custom image", PASS if "custom" in out else WARN, out or "unknown")
-    out, rc = run("grep -q '^AUTOUPDATE=false' /data/coolify/source/.env && echo ok")
-    if rc != 0:
-        actual, _ = run("grep -i autoupdate /data/coolify/source/.env 2>/dev/null || echo '(no AUTOUPDATE line)'")
-        check("AUTOUPDATE disabled", WARN, f"actual: {actual}")
-    else:
-        check("AUTOUPDATE disabled", PASS)
-    errline, _ = run(f"grep -niE 'traceback|error' {REMOTE_LOG} 2>/dev/null | tail -3")
+    envline, _ = sudo("grep -i '^AUTOUPDATE' /data/coolify/source/.env || echo '(no AUTOUPDATE line)'")
+    db_au, _ = run("docker exec coolify php artisan tinker --execute="
+                   "\"echo \\App\\Models\\InstanceSettings::first()->is_auto_update_enabled ? 'true' : 'false';\" 2>/dev/null")
+    db_au = (db_au.strip().splitlines() or ["?"])[-1]
+    env_ok = "AUTOUPDATE=false" in envline
+    check("AUTOUPDATE disabled",
+          PASS if (env_ok and db_au == "false") else WARN,
+          f"env: {envline.strip()} | DB is_auto_update_enabled: {db_au}")
+    errline, _ = run(f"tail -n 500 {REMOTE_LOG} | grep -iE 'traceback|error' | tail -3")
     if errline:
-        print("    error line(s):\n      " + errline.replace("\n", "\n      "))
+        print("    recent error line(s):\n      " + errline.replace("\n", "\n      "))
     out, rc = run("docker exec coolify grep -lc 'is_force_https_enabled: false' "
                   "/var/www/html/bootstrap/helpers/parsers.php 2>/dev/null")
     check("force_https:false patch in container", PASS if rc == 0 else WARN,
