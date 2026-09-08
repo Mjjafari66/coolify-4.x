@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 scripts/check-http-bypass.py:*)",
+      "Bash(/home/mj/anaconda3/bin/python3 scripts/check-http-bypass.py:*)",
+      "Bash(python3 scripts/set-coolify-autoupdate.py:*)",
+      "Bash(/home/mj/anaconda3/bin/python3 scripts/set-coolify-autoupdate.py:*)",
+      "Bash(ssh -i .deploy-keys/coolify_vm:*)",
+      "Bash(git push:*)",
+      "Bash(git fetch:*)",
+      "Bash(git branch:*)"
+    ],
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(docker compose down -v:*)"
+    ]
+  }
+}
