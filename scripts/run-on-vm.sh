@@ -116,6 +116,7 @@ COPY bootstrap /var/www/html/bootstrap
 COPY database/migrations /var/www/html/database/migrations
 COPY resources/views /var/www/html/resources/views
 COPY routes/web.php /var/www/html/routes/web.php
+COPY routes/api.php /var/www/html/routes/api.php
 EOF
 
 echo "==> Building ${CUSTOM_TAG}"

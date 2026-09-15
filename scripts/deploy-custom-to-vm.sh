@@ -25,6 +25,9 @@ scp "${SCP_OPTS[@]}" /tmp/coolify-source-custom.tar.gz "$USER@$HOST:/tmp/"
 scp "${SCP_OPTS[@]}" "$ROOT/scripts/run-on-vm.sh" "$USER@$HOST:/tmp/run-on-vm.sh"
 
 REMOTE_ENV="export REGISTRY_URL=${REGISTRY} && export COOLIFY_TAG=${COOLIFY_TAG:-4.1.2} &&"
+if [ -n "${COOLIFY_SSH_PASSWORD:-}" ]; then
+  REMOTE_ENV="${REMOTE_ENV} export COOLIFY_SSH_PASSWORD=$(printf '%q' "${COOLIFY_SSH_PASSWORD}") &&"
+fi
 
 echo "==> Deploy on VM"
 ssh "${SSH_OPTS[@]}" "$USER@$HOST" "cd /tmp && tar xzf coolify-source-custom.tar.gz && chmod +x run-on-vm.sh && ${REMOTE_ENV} SOURCE_DIR=/tmp/coolify-4.x bash /tmp/run-on-vm.sh"
