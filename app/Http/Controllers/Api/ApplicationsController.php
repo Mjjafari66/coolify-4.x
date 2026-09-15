@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Actions\Application\CleanupPreviewDeployment;
 use App\Actions\Application\LoadComposeFile;
 use App\Actions\Application\StopApplication;
+use App\Actions\Proxy\ApplyApplicationTraefikCertificate;
 use App\Enums\BuildPackTypes;
 use App\Http\Controllers\Controller;
 use App\Jobs\DeleteResourceJob;
@@ -25,6 +26,7 @@ use App\Support\ValidationPatterns;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use OpenApi\Attributes as OA;
@@ -3504,6 +3506,162 @@ class ApplicationsController extends Controller
         return response()->json([
             'message' => 'Environment variable deleted.',
         ]);
+    }
+
+    #[OA\Post(
+        summary: 'Apply manual SSL certificate',
+        description: "Apply a manually-provided SSL certificate + private key for one of the application's Traefik domains. The domain must already be configured on the application. Certificate/private key are validated (PEM format, key matches certificate, certificate covers the domain) but never echoed back or logged.",
+        path: '/applications/{uuid}/certificate',
+        operationId: 'apply-application-certificate-by-uuid',
+        security: [
+            ['bearerAuth' => []],
+        ],
+        tags: ['Applications'],
+        parameters: [
+            new OA\Parameter(
+                name: 'uuid',
+                in: 'path',
+                description: 'UUID of the application.',
+                required: true,
+                schema: new OA\Schema(
+                    type: 'string',
+                )
+            ),
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            description: 'Certificate applied.',
+            content: new OA\MediaType(
+                mediaType: 'application/json',
+                schema: new OA\Schema(
+                    type: 'object',
+                    required: ['domain', 'certificate', 'private_key'],
+                    properties: [
+                        'domain' => ['type' => 'string', 'description' => 'Host that the certificate covers. Must already be configured on this application.'],
+                        'certificate' => ['type' => 'string', 'description' => 'PEM-encoded certificate, fullchain (leaf + intermediates).'],
+                        'private_key' => ['type' => 'string', 'description' => 'PEM-encoded private key matching the certificate.'],
+                    ],
+                ),
+            ),
+        ),
+        responses: [
+            new OA\Response(
+                response: 201,
+                description: 'Certificate applied.',
+                content: [
+                    new OA\MediaType(
+                        mediaType: 'application/json',
+                        schema: new OA\Schema(
+                            type: 'object',
+                            properties: [
+                                'domain' => ['type' => 'string'],
+                                'common_name' => ['type' => 'string'],
+                                'valid_until' => ['type' => 'string', 'format' => 'date-time'],
+                            ]
+                        )
+                    ),
+                ]
+            ),
+            new OA\Response(
+                response: 401,
+                ref: '#/components/responses/401',
+            ),
+            new OA\Response(
+                response: 404,
+                ref: '#/components/responses/404',
+            ),
+            new OA\Response(
+                response: 422,
+                ref: '#/components/responses/422',
+            ),
+        ]
+    )]
+    public function apply_certificate(Request $request)
+    {
+        $teamId = getTeamIdFromToken();
+        if (is_null($teamId)) {
+            return invalidTokenResponse();
+        }
+
+        $return = validateIncomingRequest($request);
+        if ($return instanceof JsonResponse) {
+            return $return;
+        }
+
+        $application = Application::ownedByCurrentTeamAPI($teamId)->where('uuid', $request->route('uuid'))->first();
+        if (! $application) {
+            return response()->json([
+                'message' => 'Application not found.',
+            ], 404);
+        }
+
+        $this->authorize('manageEnvironment', $application);
+
+        $allowedFields = ['domain', 'certificate', 'private_key'];
+        $validator = customApiValidator($request->all(), [
+            'domain' => 'string|required',
+            'certificate' => 'string|required',
+            'private_key' => 'string|required',
+        ]);
+
+        $extraFields = array_diff(array_keys($request->all()), $allowedFields);
+        if ($validator->fails() || ! empty($extraFields)) {
+            $errors = $validator->errors();
+            if (! empty($extraFields)) {
+                foreach ($extraFields as $field) {
+                    $errors->add($field, 'This field is not allowed.');
+                }
+            }
+
+            return response()->json([
+                'message' => 'Validation failed.',
+                'errors' => $errors,
+            ], 422);
+        }
+
+        try {
+            $sslCertificate = ApplyApplicationTraefikCertificate::run(
+                $application,
+                $request->string('domain')->value(),
+                $request->string('certificate')->value(),
+                $request->string('private_key')->value(),
+            );
+        } catch (\RuntimeException $e) {
+            // SslHelper's own validation failures (format / key-cert mismatch /
+            // certificate doesn't cover the domain) — checked: these messages
+            // never echo certificate or key content, safe to return as-is.
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 422);
+        } catch (\Throwable $e) {
+            // Anything else (DB write, SSH write to the server, Traefik sync)
+            // — do not trust an unrecognized exception's message not to
+            // include request content. Never log the message or a trace here;
+            // this endpoint handles a customer's private key.
+            Log::error('Certificate apply failed', [
+                'team_id' => $teamId,
+                'application_uuid' => $application->uuid,
+                'exception_class' => get_class($e),
+            ]);
+
+            return response()->json([
+                'message' => 'Failed to apply certificate. Contact support if this persists.',
+            ], 500);
+        }
+
+        auditLog('api.application.certificate_applied', [
+            'team_id' => $teamId,
+            'application_uuid' => $application->uuid,
+            'domain' => $sslCertificate->domain,
+            'common_name' => $sslCertificate->common_name,
+            'valid_until' => optional($sslCertificate->valid_until)->toIso8601String(),
+        ]);
+
+        return response()->json([
+            'domain' => $sslCertificate->domain,
+            'common_name' => $sslCertificate->common_name,
+            'valid_until' => optional($sslCertificate->valid_until)->toIso8601String(),
+        ])->setStatusCode(201);
     }
 
     #[OA\Get(
