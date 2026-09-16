@@ -564,7 +564,6 @@ function generateDefaultProxyConfiguration(Server $server, array $custom_command
                         '80:80',
                         '443:443',
                         '443:443/udp',
-                        '8080:8080',
                     ],
                     'healthcheck' => [
                         'test' => 'wget -qO- http://localhost:80/ping || exit 1',
@@ -608,6 +607,10 @@ function generateDefaultProxyConfiguration(Server $server, array $custom_command
             $config['services']['traefik']['command'][] = '--accesslog.filepath=/traefik/access.log';
             $config['services']['traefik']['command'][] = '--accesslog.bufferingsize=100';
             $config['services']['traefik']['volumes'][] = '/var/lib/docker/volumes/coolify_dev_coolify_data/_data/proxy/:/traefik';
+            // Only publish the Traefik API/dashboard port when api.insecure=true (dev only).
+            // In production api.insecure=false, so nothing ever listens on 8080 inside the
+            // container — publishing it just widens the external scan surface for no benefit.
+            $config['services']['traefik']['ports'][] = '8080:8080';
         } else {
             $config['services']['traefik']['command'][] = '--api.insecure=false';
             $config['services']['traefik']['volumes'][] = "{$proxy_path}:/traefik";
