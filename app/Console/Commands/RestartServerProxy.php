@@ -2,6 +2,8 @@
 
 namespace App\Console\Commands;
 
+use App\Actions\Proxy\GetProxyConfiguration;
+use App\Actions\Proxy\SaveProxyConfiguration;
 use App\Jobs\RestartProxyJob;
 use App\Models\Server;
 use Illuminate\Console\Command;
@@ -41,6 +43,17 @@ class RestartServerProxy extends Command
 
             return self::FAILURE;
         }
+
+        // GetProxyConfiguration::run() reads `last_saved_proxy_configuration` from the
+        // DB by default and only falls back to generateDefaultProxyConfiguration() when
+        // that field is empty — on a long-running server it never is, so a plain
+        // RestartProxyJob (used by both the UI's "Restart Proxy" button and this command)
+        // just re-saves the stale cached config. Force a fresh generation from the
+        // current code and persist it *before* restarting, so the job's own (non-forced)
+        // read picks up what we just wrote.
+        $this->info('Regenerating proxy configuration from current code...');
+        $configuration = GetProxyConfiguration::run($server, forceRegenerate: true);
+        SaveProxyConfiguration::run($server, $configuration);
 
         $this->info('Restarting proxy...');
         RestartProxyJob::dispatchSync($server);
