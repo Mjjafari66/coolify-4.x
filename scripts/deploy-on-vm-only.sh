@@ -25,6 +25,7 @@ COPY database/migrations /var/www/html/database/migrations
 COPY resources/views /var/www/html/resources/views
 COPY routes/web.php /var/www/html/routes/web.php
 COPY routes/api.php /var/www/html/routes/api.php
+COPY templates /var/www/html/templates
 EOF
 
 DOCKER_BUILDKIT=0 docker build --pull=false -f Dockerfile.custom -t "${IMAGE_TAG}" .
