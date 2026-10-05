@@ -44,3 +44,32 @@ it('rejects registry tags when extracting git sha from image', function () {
     expect(gitLikeShaFromComposeImageTag('app-uuid_app:deadbeef1234567'))->toBe('deadbeef1234567');
     expect(gitLikeShaFromComposeImageTag('app-uuid_app:HEAD'))->toBeNull();
 });
+
+it('normalizes compose domain keys to the parser lookup form', function () {
+    expect(normalizeComposeDomainKey('sakhtstudio-website'))->toBe('sakhtstudio_website');
+    expect(normalizeComposeDomainKey('api.v2'))->toBe('api_v2');
+    expect(normalizeComposeDomainKey('app'))->toBe('app');
+});
+
+it('rewrites stored hyphenated compose domain keys', function () {
+    $stored = json_encode(['sakhtstudio-website' => ['domain' => 'https://a.example,https://b.example']]);
+
+    expect(json_decode(normalizedComposeDomainsJson($stored), true))
+        ->toBe(['sakhtstudio_website' => ['domain' => 'https://a.example,https://b.example']]);
+});
+
+it('leaves already-normalized compose domain keys alone', function () {
+    expect(normalizedComposeDomainsJson(json_encode(['web_app' => ['domain' => 'https://a.example']])))->toBeNull();
+    expect(normalizedComposeDomainsJson(null))->toBeNull();
+    expect(normalizedComposeDomainsJson('not json'))->toBeNull();
+});
+
+it('keeps the normalized entry when both key forms are stored', function () {
+    $stored = json_encode([
+        'web_app' => ['domain' => 'https://new.example'],
+        'web-app' => ['domain' => 'https://old.example'],
+    ]);
+
+    expect(json_decode(normalizedComposeDomainsJson($stored), true))
+        ->toBe(['web_app' => ['domain' => 'https://new.example']]);
+});

@@ -421,3 +421,45 @@ function gitLikeShaFromComposeImageTag(?string $image): ?string
 
     return $tag;
 }
+
+/**
+ * applicationParser looks up docker_compose_domains by the service name with
+ * '-' and '.' replaced by '_'. The API stores the raw compose service name, and
+ * only a full git deploy (loadComposeFile) normalizes it, so a restart without
+ * git found no domain and dropped every proxy label.
+ */
+function normalizeComposeDomainKey(string $serviceName): string
+{
+    return str($serviceName)->replace('-', '_')->replace('.', '_')->value();
+}
+
+/**
+ * Rewrite stored docker_compose_domains keys to the parser's form.
+ * Returns null when nothing is stored or nothing needed changing.
+ */
+function normalizedComposeDomainsJson(?string $dockerComposeDomains): ?string
+{
+    if (! filled($dockerComposeDomains)) {
+        return null;
+    }
+    $decoded = json_decode($dockerComposeDomains, true);
+    if (! is_array($decoded)) {
+        return null;
+    }
+
+    $normalized = [];
+    foreach ($decoded as $key => $value) {
+        $normalizedKey = normalizeComposeDomainKey((string) $key);
+        // An already-normalized key wins over a raw duplicate.
+        if (array_key_exists($normalizedKey, $normalized) && $normalizedKey !== (string) $key) {
+            continue;
+        }
+        $normalized[$normalizedKey] = $value;
+    }
+
+    if (array_keys($normalized) === array_keys($decoded)) {
+        return null;
+    }
+
+    return json_encode($normalized);
+}

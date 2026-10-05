@@ -1287,6 +1287,12 @@ class ApplicationDeploymentJob implements ShouldBeEncrypted, ShouldQueue
         }
         $this->create_workdir();
 
+        $normalizedDomains = normalizedComposeDomainsJson($this->application->docker_compose_domains);
+        if ($normalizedDomains !== null) {
+            $this->application->docker_compose_domains = $normalizedDomains;
+            $this->application->save();
+        }
+
         $composeFile = $this->application->parse(
             pull_request_id: $this->pull_request_id,
             preview_id: data_get($this->preview, 'id'),

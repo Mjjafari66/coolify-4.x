@@ -1131,7 +1131,7 @@ class ApplicationsController extends Controller
                 }
 
                 $dockerComposeDomains->each(function ($domain) use ($dockerComposeDomainsJson) {
-                    $dockerComposeDomainsJson->put(data_get($domain, 'name'), ['domain' => data_get($domain, 'domain')]);
+                    $dockerComposeDomainsJson->put(normalizeComposeDomainKey((string) data_get($domain, 'name')), ['domain' => data_get($domain, 'domain')]);
                 });
                 $request->offsetUnset('docker_compose_domains');
             }
@@ -1372,7 +1372,7 @@ class ApplicationsController extends Controller
                 }
 
                 $dockerComposeDomains->each(function ($domain) use ($dockerComposeDomainsJson) {
-                    $dockerComposeDomainsJson->put(data_get($domain, 'name'), ['domain' => data_get($domain, 'domain')]);
+                    $dockerComposeDomainsJson->put(normalizeComposeDomainKey((string) data_get($domain, 'name')), ['domain' => data_get($domain, 'domain')]);
                 });
                 $request->offsetUnset('docker_compose_domains');
             }
@@ -1585,7 +1585,7 @@ class ApplicationsController extends Controller
                 }
 
                 $dockerComposeDomains->each(function ($domain) use ($dockerComposeDomainsJson) {
-                    $dockerComposeDomainsJson->put(data_get($domain, 'name'), ['domain' => data_get($domain, 'domain')]);
+                    $dockerComposeDomainsJson->put(normalizeComposeDomainKey((string) data_get($domain, 'name')), ['domain' => data_get($domain, 'domain')]);
                 });
                 $request->offsetUnset('docker_compose_domains');
             }
@@ -2604,7 +2604,7 @@ class ApplicationsController extends Controller
             $dockerComposeDomains->each(function ($domain) use ($services, $dockerComposeDomainsJson) {
                 $name = data_get($domain, 'name');
                 if ($name && is_array($services) && isset($services[$name])) {
-                    $dockerComposeDomainsJson->put($name, ['domain' => data_get($domain, 'domain')]);
+                    $dockerComposeDomainsJson->put(normalizeComposeDomainKey($name), ['domain' => data_get($domain, 'domain')]);
                 }
             });
             $request->offsetUnset('docker_compose_domains');
