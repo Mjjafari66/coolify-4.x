@@ -3,9 +3,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-HOST="${COOLIFY_SSH_HOST:-134.255.200.131}"
-PORT="${COOLIFY_SSH_PORT:-2221}"
-USER="${COOLIFY_SSH_USER:-coolify}"
+HOST="${COOLIFY_SSH_HOST:-wl-coolify}"
+PORT="${COOLIFY_SSH_PORT:-22}"
+USER="${COOLIFY_SSH_USER:-weblines}"
 REGISTRY="${REGISTRY_URL:-ghcr-mirror.liara.ir}"
 SSH_KEY="${COOLIFY_SSH_KEY:-}"
 SSH_OPTS=(-p "$PORT" -o StrictHostKeyChecking=accept-new)

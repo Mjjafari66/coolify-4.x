@@ -11,8 +11,8 @@ import pexpect
 
 ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = ROOT / ".deploy-keys" / "deploy.env"
-HOST = os.environ.get("COOLIFY_SSH_HOST", "134.255.200.131")
-PORT = os.environ.get("COOLIFY_SSH_PORT", "2221")
+HOST = os.environ.get("COOLIFY_SSH_HOST", "10.10.10.10")
+PORT = os.environ.get("COOLIFY_SSH_PORT", "22")
 USER = os.environ.get("COOLIFY_SSH_USER", "coolify")
 REGISTRY = os.environ.get("REGISTRY_URL", "ghcr-mirror.liara.ir")
 TAG = os.environ.get("COOLIFY_TAG", "4.1.2")

@@ -49,8 +49,8 @@ def main() -> int:
     c = paramiko.SSHClient()
     c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     c.connect(
-        env.get("COOLIFY_SSH_HOST", "134.255.200.131"),
-        int(env.get("COOLIFY_SSH_PORT", "2221")),
+        env.get("COOLIFY_SSH_HOST", "10.10.10.10"),
+        int(env.get("COOLIFY_SSH_PORT", "22")),
         env.get("COOLIFY_SSH_USER", "coolify"),
         key_filename=str(KEY) if KEY.is_file() else None,
         password=None if KEY.is_file() else env.get("COOLIFY_SSH_PASSWORD"),

@@ -47,8 +47,8 @@ def main() -> int:
     env = load_env()
     c = paramiko.SSHClient()
     c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    host = env.get("COOLIFY_SSH_HOST", "134.255.200.131")
-    port = int(env.get("COOLIFY_SSH_PORT", "2221"))
+    host = env.get("COOLIFY_SSH_HOST", "10.10.10.10")
+    port = int(env.get("COOLIFY_SSH_PORT", "22"))
     user = env.get("COOLIFY_SSH_USER", "coolify")
     key_file = ROOT / ".deploy-keys" / "coolify_vm"
     kwargs = dict(timeout=30, allow_agent=False, look_for_keys=False)

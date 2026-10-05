@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run ON Coolify VM1 (ssh -p 2221 coolify@134.255.200.131)
+# Run ON the Coolify VM (ssh wl-coolify)
 set -euo pipefail
 
 echo "=== Host / Docker ==="
