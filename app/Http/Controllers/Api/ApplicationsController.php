@@ -3979,6 +3979,71 @@ class ApplicationsController extends Controller
         );
     }
 
+    /**
+     * Weblines fork: roll an application back to an earlier commit — the same
+     * path as the Rollback button in the UI (Livewire Project\Application\Rollback).
+     * Reuses the image built for that commit when it is still on the server,
+     * otherwise rebuilds that commit. No OpenAPI annotation: not upstream.
+     */
+    public function action_rollback(Request $request)
+    {
+        $teamId = getTeamIdFromToken();
+        if (is_null($teamId)) {
+            return invalidTokenResponse();
+        }
+        $uuid = $request->route('uuid');
+        if (! $uuid) {
+            return response()->json(['message' => 'UUID is required.'], 400);
+        }
+        $validator = customApiValidator($request->all(), [
+            'commit' => 'required|string|max:64',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['message' => 'Validation failed.', 'errors' => $validator->errors()], 422);
+        }
+        $application = Application::ownedByCurrentTeamAPI($teamId)->where('uuid', $uuid)->first();
+        if (! $application) {
+            return response()->json(['message' => 'Application not found.'], 404);
+        }
+
+        $this->authorize('deploy', $application);
+
+        try {
+            $commit = validateGitRef($request->input('commit'), 'rollback commit');
+        } catch (\Throwable $e) {
+            return response()->json(['message' => 'Validation failed.', 'errors' => ['commit' => [$e->getMessage()]]], 422);
+        }
+
+        $deployment_uuid = new Cuid2;
+        $result = queue_application_deployment(
+            application: $application,
+            deployment_uuid: $deployment_uuid,
+            commit: $commit,
+            rollback: true,
+            force_rebuild: false,
+            is_api: true,
+        );
+        if ($result['status'] === 'queue_full') {
+            return response()->json(['message' => $result['message']], 429)->header('Retry-After', 60);
+        }
+        if ($result['status'] === 'skipped') {
+            return response()->json(['message' => $result['message']], 200);
+        }
+
+        auditLog('api.application.rollback', [
+            'team_id' => $teamId,
+            'application_uuid' => $application->uuid,
+            'application_name' => $application->name,
+            'deployment_uuid' => $deployment_uuid->toString(),
+            'commit' => $commit,
+        ]);
+
+        return response()->json([
+            'message' => 'Rollback queued.',
+            'deployment_uuid' => $deployment_uuid->toString(),
+        ]);
+    }
+
     private function validateDataApplications(Request $request, Server $server)
     {
         $teamId = getTeamIdFromToken();
