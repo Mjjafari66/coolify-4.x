@@ -556,6 +556,116 @@ function ensureComposeApplicationHealthcheck(array $service): array
     return $service;
 }
 
+/**
+ * Weblines (CAP-1): a git app on the docker-compose build pack runs within
+ * its plan. The engine writes limits_* only for single-container apps; for a
+ * compose app it ignored them, so the customer's containers ran uncapped.
+ * The plan is split across the compose services by weight — caches 1,
+ * datastores 2, everything else 3 — the same rule the portal uses for its
+ * bundled catalog stacks (paas-portal src/lib/catalog/stack-limits.ts).
+ * A service's own lower limit is kept. An app without limits (limits "0",
+ * i.e. not created by the portal) is left alone.
+ */
+function composeMemoryToMb(mixed $value): ?int
+{
+    if (is_int($value) || is_float($value)) {
+        // A bare number in compose is bytes.
+        return $value > 0 ? (int) floor($value / 1048576) : null;
+    }
+    if (! is_string($value) || ! preg_match('/^\s*(\d+(?:\.\d+)?)\s*([bkmg]?)b?\s*$/i', $value, $m)) {
+        return null;
+    }
+    $n = (float) $m[1];
+    $mb = match (strtolower($m[2])) {
+        'g' => $n * 1024,
+        'm' => $n,
+        'k' => $n / 1024,
+        default => $n / 1048576,
+    };
+
+    return $mb > 0 ? (int) floor($mb) : null;
+}
+
+function composeServiceWeight(mixed $image): int
+{
+    $name = is_string($image) ? $image : '';
+    if (preg_match('/(^|\/)(redis|valkey|keydb|memcached|dragonfly)([:@]|$)/i', $name)) {
+        return 1;
+    }
+    if (preg_match('/(^|\/)(postgres|postgis|pgvector|timescaledb|mysql|mariadb|mongo|clickhouse|rabbitmq)([:@-]|$)/i', $name)) {
+        return 2;
+    }
+
+    return 3;
+}
+
+/**
+ * @param  array<string, mixed>  $services  compose `services`
+ * @return array{0: array<string, mixed>, 1: array<string, array{memory_mb?: int, cpus?: float}>}
+ */
+function applyComposePackLimits(array $services, mixed $limitsMemory, mixed $limitsCpus): array
+{
+    $packMb = composeMemoryToMb($limitsMemory);
+    $packCpus = is_numeric($limitsCpus) ? (float) $limitsCpus : 0.0;
+    $names = array_keys(array_filter($services, 'is_array'));
+    if (($packMb === null && $packCpus <= 0) || $names === []) {
+        return [$services, []];
+    }
+
+    $weights = [];
+    foreach ($names as $name) {
+        $weights[$name] = composeServiceWeight($services[$name]['image'] ?? null);
+    }
+    $total = array_sum($weights);
+    $applied = [];
+    foreach ($names as $name) {
+        $service = $services[$name];
+        $share = $weights[$name] / $total;
+        $limit = [];
+
+        if ($packMb !== null) {
+            $memory = max(32, (int) floor($packMb * $share));
+            $declared = composeMemoryToMb($service['mem_limit'] ?? ($service['deploy']['resources']['limits']['memory'] ?? null));
+            if ($declared !== null && $declared < $memory) {
+                $memory = $declared;
+            }
+            $service['mem_limit'] = "{$memory}m";
+            // No swap, like a single-container app the portal creates.
+            $service['memswap_limit'] = "{$memory}m";
+            // The service's own reservation, capped at its limit; else half of it.
+            $reservation = composeMemoryToMb($service['deploy']['resources']['reservations']['memory'] ?? ($service['mem_reservation'] ?? null));
+            $reservation = $reservation === null ? max(32, intdiv($memory, 2)) : min($reservation, $memory);
+            $service['mem_reservation'] = "{$reservation}m";
+            // Compose refuses flat and deploy.resources values that differ.
+            if (isset($service['deploy']['resources']['limits']['memory'])) {
+                $service['deploy']['resources']['limits']['memory'] = "{$memory}M";
+            }
+            if (isset($service['deploy']['resources']['reservations']['memory'])) {
+                $service['deploy']['resources']['reservations']['memory'] = "{$reservation}M";
+            }
+            $limit['memory_mb'] = $memory;
+        }
+
+        if ($packCpus > 0) {
+            $cpus = max(0.01, floor($packCpus * $share * 100) / 100);
+            $declaredCpus = $service['cpus'] ?? ($service['deploy']['resources']['limits']['cpus'] ?? null);
+            if (is_numeric($declaredCpus) && (float) $declaredCpus > 0 && (float) $declaredCpus < $cpus) {
+                $cpus = (float) $declaredCpus;
+            }
+            $service['cpus'] = $cpus;
+            if (isset($service['deploy']['resources']['limits']['cpus'])) {
+                $service['deploy']['resources']['limits']['cpus'] = (string) $cpus;
+            }
+            $limit['cpus'] = $cpus;
+        }
+
+        $services[$name] = $service;
+        $applied[$name] = $limit;
+    }
+
+    return [$services, $applied];
+}
+
 function fqdnLabelsForTraefik(string $uuid, Collection $domains, bool $is_force_https_enabled = false, $onlyPort = null, ?Collection $serviceLabels = null, ?bool $is_gzip_enabled = true, ?bool $is_stripprefix_enabled = true, ?string $service_name = null, bool $generate_unique_uuid = false, ?string $image = null, string $redirect_direction = 'both', bool $is_http_basic_auth_enabled = false, ?string $http_basic_auth_username = null, ?string $http_basic_auth_password = null, ProxySslMode $proxy_ssl_mode = ProxySslMode::Letsencrypt, ?array $manual_ssl_hosts = null)
 {
     $labels = collect([]);
