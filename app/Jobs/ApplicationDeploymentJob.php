@@ -688,6 +688,25 @@ class ApplicationDeploymentJob implements ShouldBeEncrypted, ShouldQueue
                 return $service;
             });
             $composeFile['services'] = $services->toArray();
+            // Weblines (CAP-1): keep the stack within the app's plan.
+            if (! $this->mainServer->isSwarm()) {
+                [$limitedServices, $applied] = applyComposePackLimits(
+                    $composeFile['services'],
+                    $this->application->limits_memory,
+                    $this->application->limits_cpus,
+                );
+                $composeFile['services'] = $limitedServices;
+                foreach ($applied as $serviceName => $limit) {
+                    $parts = [];
+                    if (isset($limit['memory_mb'])) {
+                        $parts[] = "{$limit['memory_mb']} MB RAM";
+                    }
+                    if (isset($limit['cpus'])) {
+                        $parts[] = "{$limit['cpus']} CPU";
+                    }
+                    $this->application_deployment_queue->addLogEntry("Plan limit for {$serviceName}: ".implode(', ', $parts).'.');
+                }
+            }
             if (empty($composeFile)) {
                 $this->application_deployment_queue->addLogEntry('Failed to parse docker-compose file.');
                 $this->fail('Failed to parse docker-compose file.');
