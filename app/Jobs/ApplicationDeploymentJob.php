@@ -669,6 +669,21 @@ class ApplicationDeploymentJob implements ShouldBeEncrypted, ShouldQueue
         $this->generate_build_env_variables();
 
         $this->application->loadComposeFile(isInit: false);
+        // Weblines (SEC-1): a customer's compose file stays inside its own app.
+        // Checked on the file being deployed, so a later push cannot slip past.
+        // Apps with a plan are the portal's (customers'); others are left alone, as in CAP-1.
+        $weblinesPolicy = composeMemoryToMb($this->application->limits_memory) !== null;
+        if ($weblinesPolicy) {
+            $violations = composeSecurityViolations($this->application->docker_compose_raw);
+            if ($violations !== []) {
+                foreach ($violations as $violation) {
+                    $this->application_deployment_queue->addLogEntry("Blocked by platform security policy: {$violation}.", 'stderr');
+                }
+                $this->fail('The docker-compose file uses settings the platform does not allow (see the log above).');
+
+                return;
+            }
+        }
         if ($this->application->settings->is_raw_compose_deployment_enabled) {
             $this->application->oldRawParser();
             $yaml = $composeFile = $this->application->docker_compose_raw;
@@ -705,6 +720,12 @@ class ApplicationDeploymentJob implements ShouldBeEncrypted, ShouldQueue
                         $parts[] = "{$limit['cpus']} CPU";
                     }
                     $this->application_deployment_queue->addLogEntry("Plan limit for {$serviceName}: ".implode(', ', $parts).'.');
+                }
+            }
+            if ($weblinesPolicy) {
+                [$composeFile['services'], $hardened] = hardenComposeServices($composeFile['services']);
+                foreach ($hardened as $line) {
+                    $this->application_deployment_queue->addLogEntry($line);
                 }
             }
             if (empty($composeFile)) {
