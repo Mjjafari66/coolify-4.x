@@ -666,6 +666,289 @@ function applyComposePackLimits(array $services, mixed $limitsMemory, mixed $lim
     return [$services, $applied];
 }
 
+/**
+ * Weblines (SEC-1): a customer's docker-compose file must not reach outside
+ * its own app. The engine runs the file as written, so `privileged`, host
+ * mounts, `network_mode: host`, joining the engine's network, custom proxy
+ * labels and the like would hand a customer the host and every other tenant.
+ * The file is checked against an allowlist before parsing (on the content
+ * being deployed, so a later git push cannot slip past a create-time check);
+ * anything else fails the deploy with a plain reason. Values may be
+ * `${VAR}`-interpolated from env vars the customer controls, so paths and
+ * names that matter must be literal.
+ *
+ * @return list<string> violations, empty when the file is allowed
+ */
+function composeSecurityViolations(mixed $compose): array
+{
+    if (is_string($compose)) {
+        try {
+            $compose = Yaml::parse($compose);
+        } catch (\Throwable) {
+            return []; // The parser reports invalid YAML itself.
+        }
+    }
+    if (! is_array($compose)) {
+        return [];
+    }
+
+    $v = [];
+    $topAllowed = ['version', 'name', 'services', 'volumes', 'networks', 'configs', 'secrets'];
+    foreach (array_keys($compose) as $key) {
+        if (! in_array($key, $topAllowed, true) && ! str_starts_with((string) $key, 'x-')) {
+            $v[] = "top-level `{$key}` is not allowed";
+        }
+    }
+
+    $declaredNetworks = [];
+    foreach ((array) ($compose['networks'] ?? []) as $name => $network) {
+        $declaredNetworks[] = (string) $name;
+        foreach (array_keys((array) $network) as $key) {
+            if (! in_array($key, ['driver', 'labels', 'internal', 'attachable'], true)) {
+                $v[] = "network `{$name}`: `{$key}` is not allowed";
+            }
+        }
+        if (isset($network['driver']) && $network['driver'] !== 'bridge') {
+            $v[] = "network `{$name}`: only the bridge driver is allowed";
+        }
+        $v = array_merge($v, composeLabelViolations($network['labels'] ?? null, "network `{$name}`"));
+    }
+
+    foreach ((array) ($compose['volumes'] ?? []) as $name => $volume) {
+        foreach (array_keys((array) $volume) as $key) {
+            if (! in_array($key, ['name', 'labels', 'driver'], true)) {
+                $v[] = "volume `{$name}`: `{$key}` is not allowed";
+            }
+        }
+        if (isset($volume['driver']) && $volume['driver'] !== 'local') {
+            $v[] = "volume `{$name}`: only the local driver is allowed";
+        }
+    }
+
+    foreach (['secrets', 'configs'] as $section) {
+        foreach ((array) ($compose[$section] ?? []) as $name => $item) {
+            foreach ((array) $item as $key => $value) {
+                if (! in_array($key, ['file', 'environment', 'content'], true)) {
+                    $v[] = "{$section} `{$name}`: `{$key}` is not allowed";
+                } elseif ($key === 'file' && ! composeIsRepoPath($value)) {
+                    $v[] = "{$section} `{$name}`: file must be a path inside the repository";
+                }
+            }
+        }
+    }
+
+    foreach ((array) ($compose['services'] ?? []) as $name => $service) {
+        if (is_array($service)) {
+            $v = array_merge($v, composeServiceViolations((string) $name, $service, $declaredNetworks));
+        }
+    }
+
+    return array_values(array_unique($v));
+}
+
+/** @return list<string> */
+function composeServiceViolations(string $name, array $service, array $declaredNetworks): array
+{
+    static $allowed = [
+        'image', 'build', 'command', 'entrypoint', 'environment', 'env_file', 'expose', 'ports',
+        'volumes', 'tmpfs', 'depends_on', 'links', 'restart', 'healthcheck', 'labels', 'working_dir',
+        'user', 'group_add', 'hostname', 'container_name', 'stop_signal', 'stop_grace_period', 'tty',
+        'stdin_open', 'init', 'read_only', 'deploy', 'mem_limit', 'mem_reservation', 'memswap_limit',
+        'cpus', 'cpu_shares', 'cpu_quota', 'cpu_period', 'shm_size', 'ulimits', 'pids_limit',
+        'networks', 'extra_hosts', 'dns', 'dns_search', 'platform', 'pull_policy', 'secrets', 'configs',
+        'profiles', 'scale', 'volumes_from', 'attach', 'annotations', 'develop',
+    ];
+    $v = [];
+    $at = "service `{$name}`";
+    foreach (array_keys($service) as $key) {
+        if (! in_array($key, $allowed, true) && ! str_starts_with((string) $key, 'x-')) {
+            $v[] = "{$at}: `{$key}` is not allowed";
+        }
+    }
+
+    $v = array_merge($v, composeLabelViolations($service['labels'] ?? null, $at));
+    $v = array_merge($v, composeLabelViolations($service['deploy']['labels'] ?? null, $at));
+    foreach (array_keys((array) ($service['deploy'] ?? [])) as $key) {
+        if (! in_array($key, ['resources', 'restart_policy', 'replicas', 'labels'], true)) {
+            $v[] = "{$at}: `deploy.{$key}` is not allowed";
+        }
+    }
+    foreach (array_keys((array) ($service['deploy']['resources']['reservations'] ?? [])) as $key) {
+        if ($key !== 'memory' && $key !== 'cpus') {
+            $v[] = "{$at}: `deploy.resources.reservations.{$key}` is not allowed";
+        }
+    }
+
+    $build = $service['build'] ?? null;
+    if (is_string($build) && ! composeIsRepoPath($build)) {
+        $v[] = "{$at}: build context must be a path inside the repository";
+    } elseif (is_array($build)) {
+        foreach ($build as $key => $value) {
+            if (! in_array($key, ['context', 'dockerfile', 'dockerfile_inline', 'args', 'target', 'labels', 'cache_from', 'shm_size', 'secrets'], true)) {
+                $v[] = "{$at}: `build.{$key}` is not allowed";
+            } elseif (in_array($key, ['context', 'dockerfile'], true) && ! composeIsRepoPath($value)) {
+                $v[] = "{$at}: `build.{$key}` must be a path inside the repository";
+            }
+        }
+    }
+
+    foreach ((array) ($service['env_file'] ?? []) as $file) {
+        $path = is_array($file) ? ($file['path'] ?? null) : $file;
+        if (! composeIsRepoPath($path)) {
+            $v[] = "{$at}: env_file must be a path inside the repository";
+        }
+    }
+
+    foreach ((array) ($service['volumes'] ?? []) as $volume) {
+        if ($reason = composeVolumeViolation($volume)) {
+            $v[] = "{$at}: volume {$reason}";
+        }
+    }
+
+    foreach ((array) ($service['volumes_from'] ?? []) as $from) {
+        if (! is_string($from) || str_starts_with($from, 'container:') || str_contains($from, '$')) {
+            $v[] = "{$at}: volumes_from may only name another service in this file";
+        }
+    }
+
+    $networks = $service['networks'] ?? [];
+    $networkNames = array_is_list((array) $networks) ? (array) $networks : array_keys((array) $networks);
+    foreach ($networkNames as $network) {
+        if (! is_string($network) || ($network !== 'default' && ! in_array($network, $declaredNetworks, true))) {
+            $v[] = "{$at}: network `{$network}` must be declared in this file";
+        }
+    }
+    if (! array_is_list((array) $networks)) {
+        foreach ((array) $networks as $network => $options) {
+            foreach (array_keys((array) $options) as $key) {
+                if ($key !== 'aliases') {
+                    $v[] = "{$at}: `networks.{$network}.{$key}` is not allowed";
+                }
+            }
+        }
+    }
+
+    return $v;
+}
+
+/** Proxy and engine labels belong to the platform (routing, ownership, metering). */
+function composeLabelViolations(mixed $labels, string $at): array
+{
+    if (! is_array($labels)) {
+        return [];
+    }
+    $keys = array_is_list($labels)
+        ? array_map(fn ($l) => explode('=', (string) $l, 2)[0], $labels)
+        : array_map('strval', array_keys($labels));
+    $v = [];
+    foreach ($keys as $key) {
+        $k = strtolower(trim($key));
+        if (str_contains($k, '$') || preg_match('/^(traefik|caddy|coolify|com\.docker\.)/', $k)) {
+            $v[] = "{$at}: label `{$key}` is reserved for the platform";
+        }
+    }
+
+    return $v;
+}
+
+/** A relative path that stays inside the repository, written literally. */
+function composeIsRepoPath(mixed $path): bool
+{
+    if (! is_string($path) || $path === '' || str_contains($path, '$')) {
+        return false;
+    }
+    if (str_starts_with($path, '/') || str_starts_with($path, '~') || str_contains($path, '://') || str_contains($path, '\\')) {
+        return false;
+    }
+
+    return ! in_array('..', explode('/', $path), true);
+}
+
+/** Null when the volume entry is allowed, else the reason. */
+function composeVolumeViolation(mixed $volume): ?string
+{
+    if (is_string($volume)) {
+        $parts = explode(':', $volume);
+        if (count($parts) === 1) {
+            return str_contains($volume, '$') ? "`{$volume}` must be literal" : null; // anonymous volume
+        }
+        $source = $parts[0];
+        if (str_starts_with($source, '.')) {
+            return composeIsRepoPath($source) ? null : "`{$volume}`: host paths must stay inside the app";
+        }
+        if (preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]*$/', $source)) {
+            return null; // named volume, prefixed per app by the parser
+        }
+
+        return "`{$volume}`: only named volumes and ./relative paths are allowed";
+    }
+    if (! is_array($volume)) {
+        return 'entry is invalid';
+    }
+    $type = $volume['type'] ?? 'volume';
+    $source = $volume['source'] ?? null;
+    if (isset($volume['bind']['propagation'])) {
+        return 'bind propagation is not allowed';
+    }
+    if ($type === 'tmpfs') {
+        return null;
+    }
+    if ($type === 'bind') {
+        return is_string($source) && str_starts_with($source, '.') && composeIsRepoPath($source)
+            ? null : 'bind source must be a ./relative path inside the app';
+    }
+    if ($type === 'volume') {
+        return $source === null || (is_string($source) && preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]*$/', $source))
+            ? null : 'volume source must be a literal name';
+    }
+
+    return "type `{$type}` is not allowed";
+}
+
+/**
+ * Weblines (SEC-1): hardening after parsing. Published host ports become
+ * `expose` (the proxy reaches the container on its network; a published port
+ * would bypass it and could squat on the database public-port range), and
+ * every service gets a process cap so one fork bomb cannot starve the host.
+ *
+ * @return array{0: array<string, mixed>, 1: list<string>} services, log lines
+ */
+function hardenComposeServices(array $services, int $pidsLimit = 1024): array
+{
+    $log = [];
+    foreach ($services as $name => $service) {
+        if (! is_array($service)) {
+            continue;
+        }
+        if (! empty($service['ports'])) {
+            $expose = (array) ($service['expose'] ?? []);
+            foreach ((array) $service['ports'] as $port) {
+                $target = is_array($port) ? ($port['target'] ?? null) : composeContainerPort((string) $port);
+                if ($target !== null && $target !== '') {
+                    $expose[] = (string) $target;
+                }
+            }
+            $service['expose'] = array_values(array_unique($expose));
+            unset($service['ports']);
+            $log[] = "{$name}: published ports are not allowed; exposed to the proxy instead.";
+        }
+        $declared = $service['pids_limit'] ?? null;
+        $service['pids_limit'] = is_numeric($declared) && (int) $declared > 0 ? min((int) $declared, $pidsLimit) : $pidsLimit;
+        $services[$name] = $service;
+    }
+
+    return [$services, $log];
+}
+
+/** "8080:80/tcp" → "80", "127.0.0.1:8080:80" → "80", "3000" → "3000". */
+function composeContainerPort(string $port): ?string
+{
+    $port = preg_replace('#/(tcp|udp|sctp)$#i', '', trim($port));
+    $parts = explode(':', $port);
+
+    return end($parts) ?: null;
+}
+
 function fqdnLabelsForTraefik(string $uuid, Collection $domains, bool $is_force_https_enabled = false, $onlyPort = null, ?Collection $serviceLabels = null, ?bool $is_gzip_enabled = true, ?bool $is_stripprefix_enabled = true, ?string $service_name = null, bool $generate_unique_uuid = false, ?string $image = null, string $redirect_direction = 'both', bool $is_http_basic_auth_enabled = false, ?string $http_basic_auth_username = null, ?string $http_basic_auth_password = null, ProxySslMode $proxy_ssl_mode = ProxySslMode::Letsencrypt, ?array $manual_ssl_hosts = null)
 {
     $labels = collect([]);
