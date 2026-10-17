@@ -2604,21 +2604,21 @@ function parseDockerComposeFile(Service|Application $resource, bool $isNew = fal
                         $parsedServiceVariables->put($key, $value);
                     }
                 }
-                $parsedServiceVariables->put('COOLIFY_RESOURCE_UUID', "{$resource->uuid}");
-                $parsedServiceVariables->put('COOLIFY_CONTAINER_NAME', "$serviceName-{$resource->uuid}");
+                $parsedServiceVariables->put('WEBLINES_RESOURCE_UUID', "{$resource->uuid}");
+                $parsedServiceVariables->put('WEBLINES_CONTAINER_NAME', "$serviceName-{$resource->uuid}");
 
                 // TODO: move this in a shared function
-                if (! $parsedServiceVariables->has('COOLIFY_APP_NAME')) {
-                    $parsedServiceVariables->put('COOLIFY_APP_NAME', "\"{$resource->name}\"");
+                if (! $parsedServiceVariables->has('WEBLINES_APP_NAME')) {
+                    $parsedServiceVariables->put('WEBLINES_APP_NAME', "\"{$resource->name}\"");
                 }
-                if (! $parsedServiceVariables->has('COOLIFY_SERVER_IP')) {
-                    $parsedServiceVariables->put('COOLIFY_SERVER_IP', "\"{$resource->destination->server->ip}\"");
+                if (! $parsedServiceVariables->has('WEBLINES_SERVER_IP')) {
+                    $parsedServiceVariables->put('WEBLINES_SERVER_IP', "\"{$resource->destination->server->ip}\"");
                 }
-                if (! $parsedServiceVariables->has('COOLIFY_ENVIRONMENT_NAME')) {
-                    $parsedServiceVariables->put('COOLIFY_ENVIRONMENT_NAME', "\"{$resource->environment->name}\"");
+                if (! $parsedServiceVariables->has('WEBLINES_ENVIRONMENT_NAME')) {
+                    $parsedServiceVariables->put('WEBLINES_ENVIRONMENT_NAME', "\"{$resource->environment->name}\"");
                 }
-                if (! $parsedServiceVariables->has('COOLIFY_PROJECT_NAME')) {
-                    $parsedServiceVariables->put('COOLIFY_PROJECT_NAME', "\"{$resource->project()->name}\"");
+                if (! $parsedServiceVariables->has('WEBLINES_PROJECT_NAME')) {
+                    $parsedServiceVariables->put('WEBLINES_PROJECT_NAME', "\"{$resource->project()->name}\"");
                 }
 
                 $parsedServiceVariables = $parsedServiceVariables->map(function ($value, $key) use ($envs_from_coolify) {
@@ -3410,7 +3410,7 @@ function generate_fluentd_configuration(): array
             'fluentd-async' => 'true',
             'fluentd-sub-second-precision' => 'true',
             // env vars are used in the LogDrain configurations
-            'env' => 'COOLIFY_APP_NAME,COOLIFY_PROJECT_NAME,COOLIFY_SERVER_IP,COOLIFY_ENVIRONMENT_NAME',
+            'env' => 'WEBLINES_APP_NAME,WEBLINES_PROJECT_NAME,WEBLINES_SERVER_IP,WEBLINES_ENVIRONMENT_NAME',
         ],
     ];
 }
@@ -3434,10 +3434,10 @@ function isAssociativeArray($array)
 
 /**
  * This method adds the default environment variables to the resource.
- * - COOLIFY_APP_NAME
- * - COOLIFY_PROJECT_NAME
- * - COOLIFY_SERVER_IP
- * - COOLIFY_ENVIRONMENT_NAME
+ * - WEBLINES_APP_NAME
+ * - WEBLINES_PROJECT_NAME
+ * - WEBLINES_SERVER_IP
+ * - WEBLINES_ENVIRONMENT_NAME
  *
  *  Theses variables are added in place to the $where_to_add array.
  */
@@ -3455,32 +3455,32 @@ function add_coolify_default_environment_variables(StandaloneRedis|StandalonePos
     } else {
         $isAssociativeArray = false;
     }
-    if ($where_to_check != null && $where_to_check->where('key', 'COOLIFY_APP_NAME')->isEmpty()) {
+    if ($where_to_check != null && $where_to_check->where('key', 'WEBLINES_APP_NAME')->isEmpty()) {
         if ($isAssociativeArray) {
-            $where_to_add->put('COOLIFY_APP_NAME', "\"{$resource->name}\"");
+            $where_to_add->put('WEBLINES_APP_NAME', "\"{$resource->name}\"");
         } else {
-            $where_to_add->push("COOLIFY_APP_NAME=\"{$resource->name}\"");
+            $where_to_add->push("WEBLINES_APP_NAME=\"{$resource->name}\"");
         }
     }
-    if ($where_to_check != null && $where_to_check->where('key', 'COOLIFY_SERVER_IP')->isEmpty()) {
+    if ($where_to_check != null && $where_to_check->where('key', 'WEBLINES_SERVER_IP')->isEmpty()) {
         if ($isAssociativeArray) {
-            $where_to_add->put('COOLIFY_SERVER_IP', "\"{$ip}\"");
+            $where_to_add->put('WEBLINES_SERVER_IP', "\"{$ip}\"");
         } else {
-            $where_to_add->push("COOLIFY_SERVER_IP=\"{$ip}\"");
+            $where_to_add->push("WEBLINES_SERVER_IP=\"{$ip}\"");
         }
     }
-    if ($where_to_check != null && $where_to_check->where('key', 'COOLIFY_ENVIRONMENT_NAME')->isEmpty()) {
+    if ($where_to_check != null && $where_to_check->where('key', 'WEBLINES_ENVIRONMENT_NAME')->isEmpty()) {
         if ($isAssociativeArray) {
-            $where_to_add->put('COOLIFY_ENVIRONMENT_NAME', "\"{$resource->environment->name}\"");
+            $where_to_add->put('WEBLINES_ENVIRONMENT_NAME', "\"{$resource->environment->name}\"");
         } else {
-            $where_to_add->push("COOLIFY_ENVIRONMENT_NAME=\"{$resource->environment->name}\"");
+            $where_to_add->push("WEBLINES_ENVIRONMENT_NAME=\"{$resource->environment->name}\"");
         }
     }
-    if ($where_to_check != null && $where_to_check->where('key', 'COOLIFY_PROJECT_NAME')->isEmpty()) {
+    if ($where_to_check != null && $where_to_check->where('key', 'WEBLINES_PROJECT_NAME')->isEmpty()) {
         if ($isAssociativeArray) {
-            $where_to_add->put('COOLIFY_PROJECT_NAME', "\"{$resource->project()->name}\"");
+            $where_to_add->put('WEBLINES_PROJECT_NAME', "\"{$resource->project()->name}\"");
         } else {
-            $where_to_add->push("COOLIFY_PROJECT_NAME=\"{$resource->project()->name}\"");
+            $where_to_add->push("WEBLINES_PROJECT_NAME=\"{$resource->project()->name}\"");
         }
     }
 }

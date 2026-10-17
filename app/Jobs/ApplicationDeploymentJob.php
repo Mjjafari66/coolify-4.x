@@ -1822,7 +1822,7 @@ class ApplicationDeploymentJob implements ShouldBeEncrypted, ShouldQueue
 
                 foreach ($planVariables as $key => $value) {
                     // Skip COOLIFY_* and SERVICE_* - they'll be added later with higher priority
-                    if (str_starts_with($key, 'COOLIFY_') || str_starts_with($key, 'SERVICE_')) {
+                    if (str_starts_with($key, 'COOLIFY_') || str_starts_with($key, 'WEBLINES_') || str_starts_with($key, 'SERVICE_')) {
                         continue;
                     }
 
@@ -2448,17 +2448,17 @@ class ApplicationDeploymentJob implements ShouldBeEncrypted, ShouldQueue
             $fqdn = $url->getHost();
             $url = $url->withHost($fqdn)->withPort(null)->__toString();
             if ((int) $this->application->compose_parsing_version >= 3) {
-                $this->coolify_variables .= "COOLIFY_URL={$url} ";
-                $this->coolify_variables .= "COOLIFY_FQDN={$fqdn} ";
+                $this->coolify_variables .= "WEBLINES_URL={$url} ";
+                $this->coolify_variables .= "WEBLINES_FQDN={$fqdn} ";
             } else {
-                $this->coolify_variables .= "COOLIFY_URL={$fqdn} ";
-                $this->coolify_variables .= "COOLIFY_FQDN={$url} ";
+                $this->coolify_variables .= "WEBLINES_URL={$fqdn} ";
+                $this->coolify_variables .= "WEBLINES_FQDN={$url} ";
             }
         }
         if (isset($this->application->git_branch)) {
-            $this->coolify_variables .= 'COOLIFY_BRANCH='.escapeShellValue($this->application->git_branch).' ';
+            $this->coolify_variables .= 'WEBLINES_BRANCH='.escapeShellValue($this->application->git_branch).' ';
         }
-        $this->coolify_variables .= "COOLIFY_RESOURCE_UUID={$this->application->uuid} ";
+        $this->coolify_variables .= "WEBLINES_RESOURCE_UUID={$this->application->uuid} ";
     }
 
     private function gitLsRemoteCommand(string $lsRemoteRef, ?string $identityFile = null): string
@@ -3161,32 +3161,32 @@ COPY ./nginx.conf /etc/nginx/conf.d/default.conf");
                     }
                 }
             }
-            if ($this->application->environment_variables_preview->where('key', 'COOLIFY_FQDN')->isEmpty()) {
+            if ($this->application->environment_variables_preview->where('key', 'WEBLINES_FQDN')->isEmpty()) {
                 if ((int) $this->application->compose_parsing_version >= 3) {
-                    $coolify_envs->put('COOLIFY_URL', $this->preview->fqdn);
+                    $coolify_envs->put('WEBLINES_URL', $this->preview->fqdn);
                 } else {
-                    $coolify_envs->put('COOLIFY_FQDN', $this->preview->fqdn);
+                    $coolify_envs->put('WEBLINES_FQDN', $this->preview->fqdn);
                 }
             }
-            if ($this->application->environment_variables_preview->where('key', 'COOLIFY_URL')->isEmpty()) {
+            if ($this->application->environment_variables_preview->where('key', 'WEBLINES_URL')->isEmpty()) {
                 $url = str($this->preview->fqdn)->replace('http://', '')->replace('https://', '');
                 if ((int) $this->application->compose_parsing_version >= 3) {
-                    $coolify_envs->put('COOLIFY_FQDN', $url);
+                    $coolify_envs->put('WEBLINES_FQDN', $url);
                 } else {
-                    $coolify_envs->put('COOLIFY_URL', $url);
+                    $coolify_envs->put('WEBLINES_URL', $url);
                 }
             }
             if ($this->application->build_pack !== 'dockercompose' || $this->application->compose_parsing_version === '1' || $this->application->compose_parsing_version === '2') {
-                if ($this->application->environment_variables_preview->where('key', 'COOLIFY_BRANCH')->isEmpty()) {
-                    $coolify_envs->put('COOLIFY_BRANCH', $local_branch);
+                if ($this->application->environment_variables_preview->where('key', 'WEBLINES_BRANCH')->isEmpty()) {
+                    $coolify_envs->put('WEBLINES_BRANCH', $local_branch);
                 }
-                if ($this->application->environment_variables_preview->where('key', 'COOLIFY_RESOURCE_UUID')->isEmpty()) {
-                    $coolify_envs->put('COOLIFY_RESOURCE_UUID', $this->application->uuid);
+                if ($this->application->environment_variables_preview->where('key', 'WEBLINES_RESOURCE_UUID')->isEmpty()) {
+                    $coolify_envs->put('WEBLINES_RESOURCE_UUID', $this->application->uuid);
                 }
-                // Only add COOLIFY_CONTAINER_NAME for runtime (not build-time) - it changes every deployment and breaks Docker cache
+                // Only add WEBLINES_CONTAINER_NAME for runtime (not build-time) - it changes every deployment and breaks Docker cache
                 if (! $forBuildTime) {
-                    if ($this->application->environment_variables_preview->where('key', 'COOLIFY_CONTAINER_NAME')->isEmpty()) {
-                        $coolify_envs->put('COOLIFY_CONTAINER_NAME', $this->container_name);
+                    if ($this->application->environment_variables_preview->where('key', 'WEBLINES_CONTAINER_NAME')->isEmpty()) {
+                        $coolify_envs->put('WEBLINES_CONTAINER_NAME', $this->container_name);
                     }
                 }
             }
@@ -3205,32 +3205,32 @@ COPY ./nginx.conf /etc/nginx/conf.d/default.conf");
                     }
                 }
             }
-            if ($this->application->environment_variables->where('key', 'COOLIFY_FQDN')->isEmpty()) {
+            if ($this->application->environment_variables->where('key', 'WEBLINES_FQDN')->isEmpty()) {
                 if ((int) $this->application->compose_parsing_version >= 3) {
-                    $coolify_envs->put('COOLIFY_URL', $this->application->fqdn);
+                    $coolify_envs->put('WEBLINES_URL', $this->application->fqdn);
                 } else {
-                    $coolify_envs->put('COOLIFY_FQDN', $this->application->fqdn);
+                    $coolify_envs->put('WEBLINES_FQDN', $this->application->fqdn);
                 }
             }
-            if ($this->application->environment_variables->where('key', 'COOLIFY_URL')->isEmpty()) {
+            if ($this->application->environment_variables->where('key', 'WEBLINES_URL')->isEmpty()) {
                 $url = str($this->application->fqdn)->replace('http://', '')->replace('https://', '');
                 if ((int) $this->application->compose_parsing_version >= 3) {
-                    $coolify_envs->put('COOLIFY_FQDN', $url);
+                    $coolify_envs->put('WEBLINES_FQDN', $url);
                 } else {
-                    $coolify_envs->put('COOLIFY_URL', $url);
+                    $coolify_envs->put('WEBLINES_URL', $url);
                 }
             }
             if ($this->application->build_pack !== 'dockercompose' || $this->application->compose_parsing_version === '1' || $this->application->compose_parsing_version === '2') {
-                if ($this->application->environment_variables->where('key', 'COOLIFY_BRANCH')->isEmpty()) {
-                    $coolify_envs->put('COOLIFY_BRANCH', $local_branch);
+                if ($this->application->environment_variables->where('key', 'WEBLINES_BRANCH')->isEmpty()) {
+                    $coolify_envs->put('WEBLINES_BRANCH', $local_branch);
                 }
-                if ($this->application->environment_variables->where('key', 'COOLIFY_RESOURCE_UUID')->isEmpty()) {
-                    $coolify_envs->put('COOLIFY_RESOURCE_UUID', $this->application->uuid);
+                if ($this->application->environment_variables->where('key', 'WEBLINES_RESOURCE_UUID')->isEmpty()) {
+                    $coolify_envs->put('WEBLINES_RESOURCE_UUID', $this->application->uuid);
                 }
-                // Only add COOLIFY_CONTAINER_NAME for runtime (not build-time) - it changes every deployment and breaks Docker cache
+                // Only add WEBLINES_CONTAINER_NAME for runtime (not build-time) - it changes every deployment and breaks Docker cache
                 if (! $forBuildTime) {
-                    if ($this->application->environment_variables->where('key', 'COOLIFY_CONTAINER_NAME')->isEmpty()) {
-                        $coolify_envs->put('COOLIFY_CONTAINER_NAME', $this->container_name);
+                    if ($this->application->environment_variables->where('key', 'WEBLINES_CONTAINER_NAME')->isEmpty()) {
+                        $coolify_envs->put('WEBLINES_CONTAINER_NAME', $this->container_name);
                     }
                 }
             }
@@ -3703,7 +3703,7 @@ COPY ./nginx.conf /etc/nginx/conf.d/default.conf");
 
     /**
      * Wrap a docker build command with environment export from build-time .env file
-     * This enables shell interpolation of variables (e.g., APP_URL=$COOLIFY_URL)
+     * This enables shell interpolation of variables (e.g., APP_URL=$WEBLINES_URL)
      *
      * @param  string  $build_command  The docker build command to wrap
      * @return string The wrapped command with export statement

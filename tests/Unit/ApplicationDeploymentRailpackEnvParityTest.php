@@ -167,10 +167,10 @@ it('merges coolify env variables into railpack build variables', function () {
     $job->shouldReceive('generate_coolify_env_variables')
         ->with(true)
         ->andReturn(collect([
-            'COOLIFY_URL' => 'https://app.example.com',
-            'COOLIFY_FQDN' => 'app.example.com',
-            'COOLIFY_BRANCH' => 'main',
-            'COOLIFY_RESOURCE_UUID' => 'app-uuid',
+            'WEBLINES_URL' => 'https://app.example.com',
+            'WEBLINES_FQDN' => 'app.example.com',
+            'WEBLINES_BRANCH' => 'main',
+            'WEBLINES_RESOURCE_UUID' => 'app-uuid',
             'SOURCE_COMMIT' => 'abc123',
             'EMPTY_VAR' => '',
             'NULL_VAR' => null,
@@ -196,10 +196,10 @@ it('merges coolify env variables into railpack build variables', function () {
     expect($variables->all())->toBe([
         'MY_BUILD_VAR' => 'hello',
         'RAILPACK_DEPLOY_APT_PACKAGES' => 'curl wget',
-        'COOLIFY_URL' => 'https://app.example.com',
-        'COOLIFY_FQDN' => 'app.example.com',
-        'COOLIFY_BRANCH' => 'main',
-        'COOLIFY_RESOURCE_UUID' => 'app-uuid',
+        'WEBLINES_URL' => 'https://app.example.com',
+        'WEBLINES_FQDN' => 'app.example.com',
+        'WEBLINES_BRANCH' => 'main',
+        'WEBLINES_RESOURCE_UUID' => 'app-uuid',
         'SOURCE_COMMIT' => 'abc123',
     ]);
 
@@ -207,7 +207,7 @@ it('merges coolify env variables into railpack build variables', function () {
     $envArgsProperty->setAccessible(true);
     $envArgs = $envArgsProperty->getValue($job);
 
-    expect($envArgs)->toContain("--env 'COOLIFY_URL=https://app.example.com'");
+    expect($envArgs)->toContain("--env 'WEBLINES_URL=https://app.example.com'");
     expect($envArgs)->toContain("--env 'SOURCE_COMMIT=abc123'");
     expect($envArgs)->toContain("--env 'RAILPACK_DEPLOY_APT_PACKAGES=curl wget'");
     expect($envArgs)->not->toContain('EMPTY_VAR');
