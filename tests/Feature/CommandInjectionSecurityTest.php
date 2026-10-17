@@ -275,8 +275,8 @@ describe('deployment git command escaping', function () {
         $coolifyVariables->setAccessible(true);
 
         expect($coolifyVariables->getValue($instance))
-            ->toContain("COOLIFY_BRANCH='main`id`' ")
-            ->toContain('COOLIFY_RESOURCE_UUID=app-uuid ');
+            ->toContain("WEBLINES_BRANCH='main`id`' ")
+            ->toContain('WEBLINES_RESOURCE_UUID=app-uuid ');
     });
 });
 

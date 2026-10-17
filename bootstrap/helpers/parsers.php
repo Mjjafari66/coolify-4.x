@@ -1145,18 +1145,18 @@ function applicationParser(Application $resource, int $pull_request_id = 0, ?int
         if ($pullRequestId !== 0) {
             $branch = "pull/{$pullRequestId}/head";
         }
-        if ($originalResource->environment_variables->where('key', 'COOLIFY_BRANCH')->isEmpty()) {
-            $coolifyEnvironments->put('COOLIFY_BRANCH', "\"{$branch}\"");
+        if ($originalResource->environment_variables->where('key', 'WEBLINES_BRANCH')->isEmpty()) {
+            $coolifyEnvironments->put('WEBLINES_BRANCH', "\"{$branch}\"");
         }
 
-        // Add COOLIFY_RESOURCE_UUID to environment
-        if ($resource->environment_variables->where('key', 'COOLIFY_RESOURCE_UUID')->isEmpty()) {
-            $coolifyEnvironments->put('COOLIFY_RESOURCE_UUID', "{$resource->uuid}");
+        // Add WEBLINES_RESOURCE_UUID to environment
+        if ($resource->environment_variables->where('key', 'WEBLINES_RESOURCE_UUID')->isEmpty()) {
+            $coolifyEnvironments->put('WEBLINES_RESOURCE_UUID', "{$resource->uuid}");
         }
 
-        // Add COOLIFY_CONTAINER_NAME to environment
-        if ($resource->environment_variables->where('key', 'COOLIFY_CONTAINER_NAME')->isEmpty()) {
-            $coolifyEnvironments->put('COOLIFY_CONTAINER_NAME', "{$containerName}");
+        // Add WEBLINES_CONTAINER_NAME to environment
+        if ($resource->environment_variables->where('key', 'WEBLINES_CONTAINER_NAME')->isEmpty()) {
+            $coolifyEnvironments->put('WEBLINES_CONTAINER_NAME', "{$containerName}");
         }
 
         if ($isPullRequest) {
@@ -1264,17 +1264,17 @@ function applicationParser(Application $resource, int $pull_request_id = 0, ?int
         );
 
         $isDatabase = isDatabaseImage($image, $service);
-        // Add COOLIFY_FQDN & COOLIFY_URL to environment
+        // Add WEBLINES_FQDN & WEBLINES_URL to environment
         if (! $isDatabase && $fqdns instanceof Collection && $fqdns->count() > 0) {
             $fqdnsWithoutPort = $fqdns->map(function ($fqdn) {
                 return str($fqdn)->after('://')->before(':')->prepend(str($fqdn)->before('://')->append('://'));
             });
-            $coolifyEnvironments->put('COOLIFY_URL', $fqdnsWithoutPort->implode(','));
+            $coolifyEnvironments->put('WEBLINES_URL', $fqdnsWithoutPort->implode(','));
 
             $urls = $fqdns->map(function ($fqdn) {
                 return str($fqdn)->replace('http://', '')->replace('https://', '')->before(':');
             });
-            $coolifyEnvironments->put('COOLIFY_FQDN', $urls->implode(','));
+            $coolifyEnvironments->put('WEBLINES_FQDN', $urls->implode(','));
         }
         add_coolify_default_environment_variables($resource, $coolifyEnvironments, $resource->environment_variables);
         if ($environment->count() > 0) {
@@ -2525,14 +2525,14 @@ function serviceParser(Service $resource): Collection
             }
         }
 
-        // Add COOLIFY_RESOURCE_UUID to environment
-        if ($resource->environment_variables->where('key', 'COOLIFY_RESOURCE_UUID')->isEmpty()) {
-            $coolifyEnvironments->put('COOLIFY_RESOURCE_UUID', "{$resource->uuid}");
+        // Add WEBLINES_RESOURCE_UUID to environment
+        if ($resource->environment_variables->where('key', 'WEBLINES_RESOURCE_UUID')->isEmpty()) {
+            $coolifyEnvironments->put('WEBLINES_RESOURCE_UUID', "{$resource->uuid}");
         }
 
-        // Add COOLIFY_CONTAINER_NAME to environment
-        if ($resource->environment_variables->where('key', 'COOLIFY_CONTAINER_NAME')->isEmpty()) {
-            $coolifyEnvironments->put('COOLIFY_CONTAINER_NAME', "{$containerName}");
+        // Add WEBLINES_CONTAINER_NAME to environment
+        if ($resource->environment_variables->where('key', 'WEBLINES_CONTAINER_NAME')->isEmpty()) {
+            $coolifyEnvironments->put('WEBLINES_CONTAINER_NAME', "{$containerName}");
         }
 
         if ($savedService->serviceType()) {
@@ -2553,16 +2553,16 @@ function serviceParser(Service $resource): Collection
             environment: $resource->environment->name,
         );
 
-        // Add COOLIFY_FQDN & COOLIFY_URL to environment
+        // Add WEBLINES_FQDN & WEBLINES_URL to environment
         if (! $isDatabase && $fqdns instanceof Collection && $fqdns->count() > 0) {
             $fqdnsWithoutPort = $fqdns->map(function ($fqdn) {
                 return str($fqdn)->replace('http://', '')->replace('https://', '')->before(':');
             });
-            $coolifyEnvironments->put('COOLIFY_FQDN', $fqdnsWithoutPort->implode(','));
+            $coolifyEnvironments->put('WEBLINES_FQDN', $fqdnsWithoutPort->implode(','));
             $urls = $fqdns->map(function ($fqdn): Stringable {
                 return str($fqdn)->after('://')->before(':')->prepend(str($fqdn)->before('://')->append('://'));
             });
-            $coolifyEnvironments->put('COOLIFY_URL', $urls->implode(','));
+            $coolifyEnvironments->put('WEBLINES_URL', $urls->implode(','));
         }
         add_coolify_default_environment_variables($resource, $coolifyEnvironments, $resource->environment_variables);
         if ($environment->count() > 0) {
