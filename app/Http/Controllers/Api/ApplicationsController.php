@@ -6,6 +6,7 @@ use App\Actions\Application\CleanupPreviewDeployment;
 use App\Actions\Application\LoadComposeFile;
 use App\Actions\Application\StopApplication;
 use App\Actions\Proxy\ApplyApplicationTraefikCertificate;
+use App\Actions\Proxy\RemoveApplicationTraefikCertificate;
 use App\Enums\BuildPackTypes;
 use App\Http\Controllers\Controller;
 use App\Jobs\DeleteResourceJob;
@@ -3662,6 +3663,151 @@ class ApplicationsController extends Controller
             'common_name' => $sslCertificate->common_name,
             'valid_until' => optional($sslCertificate->valid_until)->toIso8601String(),
         ])->setStatusCode(201);
+    }
+
+    #[OA\Delete(
+        summary: 'Remove manual SSL certificate',
+        description: "Remove a manually-provided SSL certificate from one of the application's Traefik domains. Traefik falls back to its automatic (Let's Encrypt) certificate for that host. Only removes certificates previously applied via POST /applications/{uuid}/certificate.",
+        path: '/applications/{uuid}/certificate',
+        operationId: 'remove-application-certificate-by-uuid',
+        security: [
+            ['bearerAuth' => []],
+        ],
+        tags: ['Applications'],
+        parameters: [
+            new OA\Parameter(
+                name: 'uuid',
+                in: 'path',
+                description: 'UUID of the application.',
+                required: true,
+                schema: new OA\Schema(
+                    type: 'string',
+                )
+            ),
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            description: 'Domain whose certificate is removed.',
+            content: new OA\MediaType(
+                mediaType: 'application/json',
+                schema: new OA\Schema(
+                    type: 'object',
+                    required: ['domain'],
+                    properties: [
+                        'domain' => ['type' => 'string', 'description' => 'Host whose manual certificate should be removed.'],
+                    ],
+                ),
+            ),
+        ),
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Certificate removed.',
+                content: [
+                    new OA\MediaType(
+                        mediaType: 'application/json',
+                        schema: new OA\Schema(
+                            type: 'object',
+                            properties: [
+                                'message' => ['type' => 'string'],
+                                'domain' => ['type' => 'string'],
+                            ]
+                        )
+                    ),
+                ]
+            ),
+            new OA\Response(
+                response: 401,
+                ref: '#/components/responses/401',
+            ),
+            new OA\Response(
+                response: 404,
+                ref: '#/components/responses/404',
+            ),
+            new OA\Response(
+                response: 422,
+                ref: '#/components/responses/422',
+            ),
+        ]
+    )]
+    public function remove_certificate(Request $request)
+    {
+        $teamId = getTeamIdFromToken();
+        if (is_null($teamId)) {
+            return invalidTokenResponse();
+        }
+
+        $return = validateIncomingRequest($request);
+        if ($return instanceof JsonResponse) {
+            return $return;
+        }
+
+        $application = Application::ownedByCurrentTeamAPI($teamId)->where('uuid', $request->route('uuid'))->first();
+        if (! $application) {
+            return response()->json([
+                'message' => 'Application not found.',
+            ], 404);
+        }
+
+        $this->authorize('manageEnvironment', $application);
+
+        $allowedFields = ['domain'];
+        $validator = customApiValidator($request->all(), [
+            'domain' => 'string|required',
+        ]);
+
+        $extraFields = array_diff(array_keys($request->all()), $allowedFields);
+        if ($validator->fails() || ! empty($extraFields)) {
+            $errors = $validator->errors();
+            if (! empty($extraFields)) {
+                foreach ($extraFields as $field) {
+                    $errors->add($field, 'This field is not allowed.');
+                }
+            }
+
+            return response()->json([
+                'message' => 'Validation failed.',
+                'errors' => $errors,
+            ], 422);
+        }
+
+        // Only act on a domain that actually has a stored manual certificate:
+        // the stored domain passed certificate validation on upload, so the
+        // path removed from the server is never built from raw request input.
+        $normalizedDomain = extractApplicationDomainHost($request->string('domain')->value());
+        $exists = $application->traefikSslCertificates()
+            ->where('domain', $normalizedDomain)
+            ->exists();
+        if (! $exists) {
+            return response()->json([
+                'message' => 'No manual certificate found for this domain.',
+            ], 404);
+        }
+
+        try {
+            RemoveApplicationTraefikCertificate::run($application, $normalizedDomain);
+        } catch (\Throwable $e) {
+            Log::error('Certificate remove failed', [
+                'team_id' => $teamId,
+                'application_uuid' => $application->uuid,
+                'exception_class' => get_class($e),
+            ]);
+
+            return response()->json([
+                'message' => 'Failed to remove certificate. Contact support if this persists.',
+            ], 500);
+        }
+
+        auditLog('api.application.certificate_removed', [
+            'team_id' => $teamId,
+            'application_uuid' => $application->uuid,
+            'domain' => $normalizedDomain,
+        ]);
+
+        return response()->json([
+            'message' => 'Certificate removed.',
+            'domain' => $normalizedDomain,
+        ]);
     }
 
     #[OA\Get(
