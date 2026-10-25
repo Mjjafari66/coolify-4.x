@@ -4366,11 +4366,10 @@ COPY ./nginx.conf /etc/nginx/conf.d/default.conf");
                 ->where('is_buildtime', true)
                 ->get();
             foreach ($envs as $env) {
-                if (data_get($env, 'is_multiline') === true) {
-                    $argsToInsert->push("ARG {$env->key}");
-                } else {
-                    $argsToInsert->push("ARG {$env->key}={$env->getResolvedValueWithServer($this->mainServer)}");
-                }
+                // Weblines: declare the name only. The value reaches the build through
+                // `--build-arg KEY` + the exported env (generateDockerBuildArgs), so writing
+                // it here only baked secrets into the Dockerfile that `COPY . .` ships in the image.
+                $argsToInsert->push("ARG {$env->key}");
             }
             // Add Coolify variables as ARGs
             if ($this->coolify_variables) {
@@ -4388,11 +4387,10 @@ COPY ./nginx.conf /etc/nginx/conf.d/default.conf");
                 ->where('is_buildtime', true)
                 ->get();
             foreach ($envs as $env) {
-                if (data_get($env, 'is_multiline') === true) {
-                    $argsToInsert->push("ARG {$env->key}");
-                } else {
-                    $argsToInsert->push("ARG {$env->key}={$env->getResolvedValueWithServer($this->mainServer)}");
-                }
+                // Weblines: declare the name only. The value reaches the build through
+                // `--build-arg KEY` + the exported env (generateDockerBuildArgs), so writing
+                // it here only baked secrets into the Dockerfile that `COPY . .` ships in the image.
+                $argsToInsert->push("ARG {$env->key}");
             }
             // Add Coolify variables as ARGs
             if ($this->coolify_variables) {
