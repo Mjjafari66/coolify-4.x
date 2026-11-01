@@ -1946,6 +1946,84 @@ function weblinesBuildMirrorEnv(): array
     ];
 }
 
+/**
+ * Weblines: Debian and Ubuntu package hosts that builds reach through the
+ * mirror. Their images fetch over plain http (http://deb.debian.org/debian),
+ * so `--add-host deb.debian.org:<mirror ip>` sends apt-get to the mirror's
+ * caching proxy on port 80 with no change to the Dockerfile. Alpine uses
+ * https and can't be redirected this way. Empty when the mirror is off, when
+ * WEBLINES_APT_MIRROR=off, or when the mirror's name doesn't resolve (builds
+ * then go to the real hosts, as before).
+ *
+ * @return array<string, string> host => mirror IPv4
+ */
+function weblinesAptMirrorHosts(?callable $resolve = null): array
+{
+    $apt = getenv('WEBLINES_APT_MIRROR');
+    if (is_string($apt) && strtolower(trim($apt)) === 'off') {
+        return [];
+    }
+    $base = weblinesBuildMirrorEnv()['PIP_INDEX_URL'] ?? null;
+    $host = $base ? parse_url($base, PHP_URL_HOST) : null;
+    if (! is_string($host) || $host === '') {
+        return [];
+    }
+    $ip = ($resolve ?? 'gethostbyname')($host);
+    if (! is_string($ip) || filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) === false) {
+        return [];
+    }
+
+    // apt follows the SRV record of deb.debian.org and security.debian.org
+    // (_http._tcp -> debian.map.fastlydns.net) before /etc/hosts, so that name is mapped too.
+    return array_fill_keys(['deb.debian.org', 'security.debian.org', 'debian.map.fastlydns.net', 'archive.ubuntu.com', 'security.ubuntu.com'], $ip);
+}
+
+/**
+ * Weblines: the compose form of the build's --add-host flags, so apt-get in a
+ * compose service's build also goes through the mirror. Only services with a
+ * `build:` section change; a host the service already maps is left as is.
+ *
+ * @param  array<string, string>  $hosts  weblinesAptMirrorHosts()
+ */
+function weblinesAddAptMirrorToComposeBuilds(array $services, array $hosts): array
+{
+    if ($hosts === []) {
+        return $services;
+    }
+    foreach ($services as $name => $service) {
+        if (! is_array($service) || ! isset($service['build'])) {
+            continue;
+        }
+        $build = is_string($service['build']) ? ['context' => $service['build']] : $service['build'];
+        if (! is_array($build)) {
+            continue;
+        }
+        // extra_hosts is a list ("host:ip" or "host=ip") or a map (host: ip).
+        $extra = $build['extra_hosts'] ?? [];
+        if (! is_array($extra)) {
+            continue;
+        }
+        $isList = array_is_list($extra);
+        $taken = $isList
+            ? array_map(fn ($entry) => strtolower(trim(preg_split('/[:=]/', (string) $entry, 2)[0])), $extra)
+            : array_map('strtolower', array_keys($extra));
+        foreach ($hosts as $host => $ip) {
+            if (in_array($host, $taken, true)) {
+                continue;
+            }
+            if ($isList) {
+                $extra[] = "{$host}:{$ip}";
+            } else {
+                $extra[$host] = $ip;
+            }
+        }
+        $build['extra_hosts'] = $extra;
+        $services[$name]['build'] = $build;
+    }
+
+    return $services;
+}
+
 function generateDockerBuildArgs($variables): Collection
 {
     $variables = collect($variables);
