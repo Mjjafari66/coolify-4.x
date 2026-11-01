@@ -185,6 +185,9 @@ class ApplicationDeploymentJob implements ShouldBeEncrypted, ShouldQueue
 
     private bool $dockerSecretsSupported = false;
 
+    /** Weblines: weblines_build_mirror_env(), worked out once per deployment. */
+    private ?Collection $weblinesBuildMirror = null;
+
     private bool $skip_build = false;
 
     private Collection|string $build_secrets;
@@ -1842,6 +1845,11 @@ class ApplicationDeploymentJob implements ShouldBeEncrypted, ShouldQueue
             $envs_dict[$key] = escapeBashEnvValue($item);
         }
 
+        // Weblines: package mirror (lower priority than the app's own variables below).
+        foreach ($this->weblines_build_mirror_env() as $key => $value) {
+            $envs_dict[$key] = escapeBashEnvValue($value);
+        }
+
         // 3. Add SERVICE_NAME, SERVICE_FQDN, SERVICE_URL variables for Docker Compose builds
         if ($this->build_pack === 'dockercompose') {
             if ($this->pull_request_id === 0) {
@@ -3258,6 +3266,11 @@ COPY ./nginx.conf /etc/nginx/conf.d/default.conf");
             }
         });
 
+        // Weblines: package mirror as build args (the app's own variables below win).
+        $this->weblines_build_mirror_env()->each(function ($value, $key) {
+            $this->env_args->put($key, $value);
+        });
+
         // For build process, include only environment variables where is_buildtime = true
         if ($this->pull_request_id === 0) {
             $envs = $this->application->environment_variables()
@@ -4326,6 +4339,27 @@ COPY ./nginx.conf /etc/nginx/conf.d/default.conf");
         return $fromLines;
     }
 
+    /**
+     * Weblines: weblinesBuildMirrorEnv() minus every variable the app defines
+     * itself (build-time or not, so a customer can opt out by name). Dockerfile
+     * builds only: a compose service's Dockerfile gets no ARG lines, and with
+     * build secrets the values don't reach RUN as environment variables.
+     */
+    private function weblines_build_mirror_env(): Collection
+    {
+        if ($this->weblinesBuildMirror !== null) {
+            return $this->weblinesBuildMirror;
+        }
+        if ($this->build_pack !== 'dockerfile' || $this->dockerSecretsSupported) {
+            return $this->weblinesBuildMirror = collect();
+        }
+        $own = $this->pull_request_id === 0
+            ? $this->application->environment_variables()->pluck('key')
+            : $this->application->environment_variables_preview()->pluck('key');
+
+        return $this->weblinesBuildMirror = collect(weblinesBuildMirrorEnv())->except($own->all());
+    }
+
     private function add_build_env_variables_to_dockerfile()
     {
         if ($this->dockerSecretsSupported) {
@@ -4401,6 +4435,16 @@ COPY ./nginx.conf /etc/nginx/conf.d/default.conf");
                     });
                 $argsToInsert = $argsToInsert->merge($coolify_vars);
             }
+        }
+
+        // Weblines: declare the package mirror's names too; values come with the build args.
+        $mirror = $this->weblines_build_mirror_env();
+        if ($mirror->isNotEmpty()) {
+            foreach ($mirror->keys() as $key) {
+                $argsToInsert->push("ARG {$key}");
+            }
+            $mirrorHost = parse_url((string) $mirror->first(), PHP_URL_HOST) ?: 'the Weblines mirror';
+            $this->application_deployment_queue->addLogEntry("Packages are downloaded through {$mirrorHost} (pip, npm, Yarn, pnpm, bun, Prisma). Set your own NPM_CONFIG_REGISTRY or PIP_INDEX_URL build variable to use another registry.");
         }
 
         // Development logging to show what ARGs are being injected
