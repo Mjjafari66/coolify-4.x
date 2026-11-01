@@ -188,6 +188,9 @@ class ApplicationDeploymentJob implements ShouldBeEncrypted, ShouldQueue
     /** Weblines: weblines_build_mirror_env(), worked out once per deployment. */
     private ?Collection $weblinesBuildMirror = null;
 
+    /** Weblines: weblinesAptMirrorHosts() for this deployment's builds. */
+    private array $weblinesAptHosts = [];
+
     private bool $skip_build = false;
 
     private Collection|string $build_secrets;
@@ -334,6 +337,12 @@ class ApplicationDeploymentJob implements ShouldBeEncrypted, ShouldQueue
                 $this->addHosts = $ips->map(function ($ip, $name) {
                     return "--add-host $name:$ip";
                 })->implode(' ');
+            }
+            // Weblines: apt-get in every build goes through the package mirror (weblinesAptMirrorHosts()).
+            $this->weblinesAptHosts = weblinesAptMirrorHosts();
+            $aptHosts = collect($this->weblinesAptHosts)->map(fn ($ip, $host) => "--add-host {$host}:{$ip}")->implode(' ');
+            if ($aptHosts !== '') {
+                $this->addHosts = trim(($this->addHosts ?? '').' '.$aptHosts);
             }
 
             if ($this->application->dockerfile_target_build) {
@@ -731,6 +740,7 @@ class ApplicationDeploymentJob implements ShouldBeEncrypted, ShouldQueue
                     $this->application_deployment_queue->addLogEntry($line);
                 }
             }
+            $composeFile['services'] = weblinesAddAptMirrorToComposeBuilds($composeFile['services'], $this->weblinesAptHosts);
             if (empty($composeFile)) {
                 $this->application_deployment_queue->addLogEntry('Failed to parse docker-compose file.');
                 $this->fail('Failed to parse docker-compose file.');
@@ -4342,15 +4352,15 @@ COPY ./nginx.conf /etc/nginx/conf.d/default.conf");
     /**
      * Weblines: weblinesBuildMirrorEnv() minus every variable the app defines
      * itself (build-time or not, so a customer can opt out by name). Dockerfile
-     * builds only: a compose service's Dockerfile gets no ARG lines, and with
-     * build secrets the values don't reach RUN as environment variables.
+     * and compose builds only (both get ARG lines); with build secrets the
+     * values don't reach RUN as environment variables.
      */
     private function weblines_build_mirror_env(): Collection
     {
         if ($this->weblinesBuildMirror !== null) {
             return $this->weblinesBuildMirror;
         }
-        if ($this->build_pack !== 'dockerfile' || $this->dockerSecretsSupported) {
+        if (! in_array($this->build_pack, ['dockerfile', 'dockercompose'], true) || $this->dockerSecretsSupported) {
             return $this->weblinesBuildMirror = collect();
         }
         $own = $this->pull_request_id === 0
@@ -4358,6 +4368,17 @@ COPY ./nginx.conf /etc/nginx/conf.d/default.conf");
             : $this->application->environment_variables_preview()->pluck('key');
 
         return $this->weblinesBuildMirror = collect(weblinesBuildMirrorEnv())->except($own->all());
+    }
+
+    private function weblines_log_build_mirror(): void
+    {
+        $mirror = $this->weblines_build_mirror_env();
+        if ($mirror->isEmpty()) {
+            return;
+        }
+        $mirrorHost = parse_url((string) $mirror->first(), PHP_URL_HOST) ?: 'the Weblines mirror';
+        $apt = $this->weblinesAptHosts !== [] ? ', apt-get on Debian and Ubuntu' : '';
+        $this->application_deployment_queue->addLogEntry("Packages are downloaded through {$mirrorHost} (pip, npm, Yarn, pnpm, bun, Prisma{$apt}). Set your own NPM_CONFIG_REGISTRY or PIP_INDEX_URL build variable to use another registry.");
     }
 
     private function add_build_env_variables_to_dockerfile()
@@ -4443,8 +4464,7 @@ COPY ./nginx.conf /etc/nginx/conf.d/default.conf");
             foreach ($mirror->keys() as $key) {
                 $argsToInsert->push("ARG {$key}");
             }
-            $mirrorHost = parse_url((string) $mirror->first(), PHP_URL_HOST) ?: 'the Weblines mirror';
-            $this->application_deployment_queue->addLogEntry("Packages are downloaded through {$mirrorHost} (pip, npm, Yarn, pnpm, bun, Prisma). Set your own NPM_CONFIG_REGISTRY or PIP_INDEX_URL build variable to use another registry.");
+            $this->weblines_log_build_mirror();
         }
 
         // Development logging to show what ARGs are being injected
@@ -4581,6 +4601,9 @@ COPY ./nginx.conf /etc/nginx/conf.d/default.conf");
         }
 
         $services = data_get($composeFile, 'services', []);
+        if (collect($services)->contains(fn ($service) => isset($service['build']))) {
+            $this->weblines_log_build_mirror();
+        }
 
         foreach ($services as $serviceName => $service) {
             if (! isset($service['build'])) {
