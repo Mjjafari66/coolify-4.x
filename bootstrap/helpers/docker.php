@@ -1911,6 +1911,41 @@ function escapeBashDoubleQuoted(?string $value): string
  * @param  Collection|array  $variables  Collection of variables with 'key', 'value', and optionally 'is_multiline'
  * @return Collection Collection of formatted --build-arg strings (keys only)
  */
+/**
+ * Weblines: package-manager mirror for every Dockerfile build, so pip, npm,
+ * Yarn, pnpm (corepack), bun and Prisma read our Iran mirror instead of
+ * registries that Sirvan often can't reach. Passed as build-time variables:
+ * the job declares `ARG <name>` after each FROM and passes the value, and
+ * Docker exposes build args to RUN as environment variables, so a customer's
+ * own Dockerfile picks them up unchanged. A variable the app defines itself
+ * wins. WEBLINES_BUILD_MIRROR overrides the base URL; "off" disables it.
+ * Read with getenv(): config/ is not part of the custom image.
+ *
+ * @return array<string, string>
+ */
+function weblinesBuildMirrorEnv(): array
+{
+    $base = getenv('WEBLINES_BUILD_MIRROR');
+    $base = is_string($base) && trim($base) !== '' ? trim($base) : 'https://mirror.weblines.ir';
+    if (strtolower($base) === 'off') {
+        return [];
+    }
+    $base = rtrim($base, '/');
+
+    return [
+        'PIP_INDEX_URL' => "{$base}/pypi/simple/",
+        'UV_DEFAULT_INDEX' => "{$base}/pypi/simple/",
+        'NPM_CONFIG_REGISTRY' => "{$base}/npm/",
+        'YARN_REGISTRY' => "{$base}/npm/",
+        'YARN_NPM_REGISTRY_SERVER' => "{$base}/npm",
+        'BUN_CONFIG_REGISTRY' => "{$base}/npm/",
+        'COREPACK_NPM_REGISTRY' => "{$base}/npm",
+        // corepack checks package-manager signatures against npmjs keys; our mirror serves the same tarballs over TLS.
+        'COREPACK_INTEGRITY_KEYS' => '0',
+        'PRISMA_ENGINES_MIRROR' => "{$base}/prisma",
+    ];
+}
+
 function generateDockerBuildArgs($variables): Collection
 {
     $variables = collect($variables);
