@@ -128,6 +128,7 @@ class Application extends BaseModel
         'fqdn',
         'git_repository',
         'git_branch',
+        'git_mirror_url',
         'git_commit_sha',
         'git_full_url',
         'docker_registry_image_name',

@@ -191,6 +191,9 @@ class ApplicationDeploymentJob implements ShouldBeEncrypted, ShouldQueue
     /** Weblines: weblinesAptMirrorHosts() for this deployment's builds. */
     private array $weblinesAptHosts = [];
 
+    /** Weblines: GitHub was unreachable, so this build takes the code from git_mirror_url. */
+    private bool $weblinesFromGitMirror = false;
+
     private bool $skip_build = false;
 
     private Collection|string $build_secrets;
@@ -2487,10 +2490,63 @@ class ApplicationDeploymentJob implements ShouldBeEncrypted, ShouldQueue
             $sshCommand .= " -i {$identityFile} -o IdentitiesOnly=yes";
         }
 
-        return 'GIT_SSH_COMMAND="'.$sshCommand.'" git ls-remote '.escapeshellarg($this->fullRepoUrl).' '.escapeshellarg($lsRemoteRef);
+        // Weblines: with a mirror to fall back to, don't wait long on an unreachable host.
+        $timeout = $this->weblines_git_mirror() !== null ? 'timeout 25 ' : '';
+
+        return $timeout.'GIT_SSH_COMMAND="'.$sshCommand.'" git ls-remote '.escapeshellarg($this->fullRepoUrl).' '.escapeshellarg($lsRemoteRef);
     }
 
     private function check_git_if_build_needed()
+    {
+        // Weblines: with a copy of the repo on the portal, a Git host that can't
+        // be reached (international outage) is no longer the end of the build.
+        if ($this->weblines_git_mirror() !== null) {
+            try {
+                $this->check_git_from_source();
+            } catch (Throwable $e) {
+                $this->weblines_use_git_mirror($e->getMessage());
+
+                return;
+            }
+            if (! $this->weblinesFromGitMirror && ($this->commit === 'HEAD' || blank($this->commit)) && ! $this->rollback) {
+                $this->weblines_use_git_mirror('no commit came back from the Git host');
+            }
+
+            return;
+        }
+        $this->check_git_from_source();
+    }
+
+    /** Weblines: the app's Git mirror URL, for the main branch only (no PR previews). */
+    private function weblines_git_mirror(): ?string
+    {
+        $url = trim((string) $this->application->git_mirror_url);
+
+        return $url !== '' && $this->pull_request_id === 0 ? $url : null;
+    }
+
+    /** Weblines: from here on the build reads the portal's copy; find the commit there. */
+    private function weblines_use_git_mirror(string $reason): void
+    {
+        $mirror = $this->weblines_git_mirror();
+        $this->weblinesFromGitMirror = true;
+        $this->branch = $this->application->git_branch;
+        $this->application_deployment_queue->addLogEntry('Could not reach the Git host ('.str($reason)->limit(160).'). Building from the Weblines copy of the repository instead; it is updated on every push and every few hours.');
+        $this->execute_remote_command([
+            executeInDocker($this->deployment_uuid, 'timeout 60 git ls-remote '.escapeshellarg($mirror).' '.escapeshellarg("refs/heads/{$this->branch}")),
+            'hidden' => true,
+            'save' => 'git_mirror_sha',
+        ]);
+        if (preg_match('/\b([0-9a-fA-F]{40})(?=\s*\t)/', (string) $this->saved_outputs->get('git_mirror_sha'), $matches)) {
+            $this->commit = $matches[1];
+            $this->application_deployment_queue->commit = $this->commit;
+            $this->application_deployment_queue->save();
+            $this->application_deployment_queue->addLogEntry("Weblines copy is at commit {$this->commit}.");
+        }
+        $this->set_coolify_variables();
+    }
+
+    private function check_git_from_source()
     {
         if (is_object($this->source) && $this->source->getMorphClass() === GithubApp::class && $this->source->is_public === false) {
             $repository = githubApi($this->source, "repos/{$this->customRepository}");
@@ -2584,6 +2640,11 @@ class ApplicationDeploymentJob implements ShouldBeEncrypted, ShouldQueue
 
     private function clone_repository()
     {
+        if ($this->weblinesFromGitMirror) {
+            $this->clone_from_git_mirror();
+
+            return;
+        }
         $importCommands = $this->generate_git_import_commands();
         $this->application_deployment_queue->addLogEntry("\n----------------------------------------");
         $this->application_deployment_queue->addLogEntry("Importing {$this->customRepository}:{$this->application->git_branch} (commit sha {$this->commit}) to {$this->basedir}.");
@@ -2610,6 +2671,29 @@ class ApplicationDeploymentJob implements ShouldBeEncrypted, ShouldQueue
             ApplicationDeploymentQueue::whereCommit($this->commit)->whereApplicationId($this->application->id)->update(
                 ['commit_message' => $commit_message->value()]
             );
+        }
+    }
+
+    /** Weblines: shallow clone of the branch from the portal's copy, at the commit found there. */
+    private function clone_from_git_mirror(): void
+    {
+        $mirror = escapeshellarg($this->weblines_git_mirror());
+        $branch = escapeshellarg($this->branch);
+        $this->application_deployment_queue->addLogEntry("\n----------------------------------------");
+        $this->application_deployment_queue->addLogEntry("Importing {$this->customRepository}:{$this->branch} (commit sha {$this->commit}) from the Weblines copy to {$this->basedir}.");
+        $this->execute_remote_command([
+            executeInDocker($this->deployment_uuid, "git clone --depth=1 -b {$branch} {$mirror} {$this->basedir}"),
+            'hidden' => true,
+        ]);
+        $this->create_workdir();
+        $this->execute_remote_command([
+            executeInDocker($this->deployment_uuid, "cd {$this->workdir} && git log -1 --pretty=%B"),
+            'hidden' => true,
+            'save' => 'commit_message',
+        ]);
+        if ($this->saved_outputs->get('commit_message')) {
+            $this->application_deployment_queue->commit_message = str($this->saved_outputs->get('commit_message'))->value();
+            $this->application_deployment_queue->save();
         }
     }
 
