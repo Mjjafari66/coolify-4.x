@@ -2491,9 +2491,10 @@ class ApplicationDeploymentJob implements ShouldBeEncrypted, ShouldQueue
         }
 
         // Weblines: with a mirror to fall back to, don't wait long on an unreachable host.
+        // (timeout wraps git itself: it can't run an env assignment, that was exit 127.)
         $timeout = $this->weblines_git_mirror() !== null ? 'timeout 25 ' : '';
 
-        return $timeout.'GIT_SSH_COMMAND="'.$sshCommand.'" git ls-remote '.escapeshellarg($this->fullRepoUrl).' '.escapeshellarg($lsRemoteRef);
+        return 'GIT_SSH_COMMAND="'.$sshCommand.'" '.$timeout.'git ls-remote '.escapeshellarg($this->fullRepoUrl).' '.escapeshellarg($lsRemoteRef);
     }
 
     private function check_git_if_build_needed()
