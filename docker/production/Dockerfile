@@ -1,6 +1,9 @@
 # Versions
 # https://hub.docker.com/r/serversideup/php/tags?name=8.4-fpm-nginx-alpine
-ARG SERVERSIDEUP_PHP_VERSION=8.4-fpm-nginx-alpine
+# Pinned (Weblines): the floating tag moved to serversideup v5 on Alpine 3.24,
+# which changes opcache and trusted-proxy defaults. Bump the PHP patch here for
+# security releases; move to v5 only on purpose.
+ARG SERVERSIDEUP_PHP_VERSION=8.4.27-fpm-nginx-alpine3.23-v4.5.3
 # https://github.com/minio/mc/releases
 ARG MINIO_VERSION=RELEASE.2025-05-21T01-59-54Z
 # https://github.com/cloudflare/cloudflared/releases
