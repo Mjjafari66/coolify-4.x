@@ -35,6 +35,8 @@ const VALID_CRON_STRINGS = [
     '@yearly' => '0 0 1 1 *',
 ];
 const RESTART_MODE = 'unless-stopped';
+/** Weblines: process cap for every customer app and database container, so a fork bomb stays inside it. */
+const WEBLINES_PIDS_LIMIT = 1024;
 const DEFAULT_STOP_GRACE_PERIOD_SECONDS = 30;
 const MIN_STOP_GRACE_PERIOD_SECONDS = 1;
 const MAX_STOP_GRACE_PERIOD_SECONDS = 3600;

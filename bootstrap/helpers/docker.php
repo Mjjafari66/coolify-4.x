@@ -913,7 +913,7 @@ function composeVolumeViolation(mixed $volume): ?string
  *
  * @return array{0: array<string, mixed>, 1: list<string>} services, log lines
  */
-function hardenComposeServices(array $services, int $pidsLimit = 1024): array
+function hardenComposeServices(array $services, int $pidsLimit = WEBLINES_PIDS_LIMIT): array
 {
     $log = [];
     foreach ($services as $name => $service) {

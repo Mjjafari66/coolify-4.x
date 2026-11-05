@@ -3468,6 +3468,7 @@ COPY ./nginx.conf /etc/nginx/conf.d/default.conf");
                     'mem_reservation' => $this->application->limits_memory_reservation,
                     'cpus' => (float) $this->application->limits_cpus,
                     'cpu_shares' => $this->application->limits_cpu_shares,
+                    'pids_limit' => WEBLINES_PIDS_LIMIT,
                 ],
             ],
             'networks' => [

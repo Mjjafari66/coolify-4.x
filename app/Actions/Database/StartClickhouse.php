@@ -59,6 +59,7 @@ class StartClickhouse
                     'mem_reservation' => $this->database->limits_memory_reservation,
                     'cpus' => (float) $this->database->limits_cpus,
                     'cpu_shares' => $this->database->limits_cpu_shares,
+                    'pids_limit' => 4 * WEBLINES_PIDS_LIMIT, // Weblines: ClickHouse runs large thread pools
                 ],
             ],
             'networks' => [

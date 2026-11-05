@@ -120,6 +120,7 @@ class StartMongodb
                     'mem_reservation' => $this->database->limits_memory_reservation,
                     'cpus' => (float) $this->database->limits_cpus,
                     'cpu_shares' => $this->database->limits_cpu_shares,
+                    'pids_limit' => WEBLINES_PIDS_LIMIT,
                 ],
             ],
             'networks' => [
